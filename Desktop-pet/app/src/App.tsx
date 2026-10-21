@@ -4,6 +4,8 @@ import { CharacterHost, type CharacterHostHandle } from './render/character-host
 import { HatchPetHost } from './render/hatch-pet-host';
 import { PetMenu } from './ui/pet-menu';
 import { ChatBubble } from './ui/chat-bubble';
+import { PetSpeechBubble } from './ui/pet-speech-bubble';
+import { useProactiveGreetings } from './render/use-proactive-greetings';
 import { ClipboardSuggestionLayer } from './ui/clipboard-suggestion';
 import type { VoskState } from './render/vosk-shared';
 
@@ -40,14 +42,18 @@ export default function App() {
   /** 「编码(增强)模式」— 改变聊天气泡为底部居中紧凑条,
    *  让模型完整露出。从设置面板开关,实时同步。 */
   const [codingMode, setCodingMode] = useState(false);
-  /** 渲染风格(放大插值策略)—— 'auto' 双线性 | 'pixelated' 最近邻
-   *  ★ 按角色分别存储,所以切角色时要重新读该角色的值(见下方 effect) */
+  // 渲染风格(放大插值策略)—— 'auto' 双线性 | 'pixelated' 最近邻
+  //  ★ 按角色分别存储,所以切角色时要重新读该角色的值(见下方 effect)
   const [renderStyle, setRenderStyle] = useState<'auto' | 'pixelated'>('auto');
   const hostRef = useRef<CharacterHostHandle>(null);
   /** characters 的 ref 镜像 —— characters 每次渲染都是新数组,
    *  不能进 effect 依赖(会每次都重跑),也不能在声明前用( TDZ)。
    *  → 这里只声明 ref,赋值放到 characters 定义之后。 */
   const charactersRef = useRef<ActiveCharacter[]>([]);
+  /** 主动搭话的一句话气泡 */
+  const [speech, setSpeech] = useState<{ text: string; durationMs: number } | null>(null);
+  /** 当前角色名(ref 传给主动搭话 hook —— hook 必须在顶层调,而 active 在后面才算出) */
+  const activeNameRef = useRef<string>('');
 
   // 角色切换 → 同步该角色的渲染风格(每个角色各存各的)。
   // ⚠ 不能直接问 hostRef:activeId 变化时新 host 还没挂载,
@@ -142,6 +148,17 @@ export default function App() {
   // ref 镜像(声明在前面,避免 TDZ;这里赋值)
   charactersRef.current = characters;
   const active = characters.find((c) => c.id === activeId) ?? characters[0];
+  activeNameRef.current = active?.name ?? '';
+
+  // ---- 桌宠主动行为(时段问候 / 整点报时 / 节假日 / 记忆提醒 / 无操作搭话)----
+  // ★ 放在 App 层(应用级行为),Live2D 和 hatch-pet 两种角色一视同仁。
+  //   (之前只挂在 Live2D 的 character-host 上 → hatch-pet 永远不会主动说话)
+  // ⚠ 放在 active 计算之后 —— hook 需要当前角色名,放前面拿不到。
+  useProactiveGreetings({
+    characterId: active?.id ?? '',
+    characterName: active?.name ?? '',
+    showHint: (msg, duration) => setSpeech({ text: msg, durationMs: duration }),
+  });
 
   const handleContextMenu = useCallback(() => {
     setMenuOpen(true);
@@ -263,6 +280,13 @@ export default function App() {
         anchorY={anchorY}
         characterName={active?.name ?? null}
         codingMode={codingMode}
+      />
+
+      {/* 主动搭话的一句话气泡(桌宠头顶) */}
+      <PetSpeechBubble
+        text={speech?.text ?? ''}
+        anchorY={anchorY}
+        durationMs={speech?.durationMs ?? 4000}
       />
 
       <PetMenu

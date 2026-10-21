@@ -113,6 +113,19 @@ def main() -> int:
             fails.append(name)
 
     try:
+        # ★ 先清掉 render-style 的用户覆盖 ——
+        #   上一轮跑测试时手动设的值会留在 localStorage,
+        #   让这一轮的"默认值"断言读到旧值(测试状态污染 → 假失败)。
+        cleared = cdp.eval("""
+          (() => {
+            const keys = Object.keys(localStorage).filter(k => k.startsWith('pet:render-style:'));
+            keys.forEach(k => localStorage.removeItem(k));
+            return keys.length;
+          })()
+        """)
+        print(f"[0] 清理历史 render-style 覆盖:{cleared} 条")
+        time.sleep(0.3)
+
         # 1) 像素风内置角色 → 应自动是 pixelated
         print("[1] 内置像素风「耄耋」→ 应为 pixelated(来自 pet.json 声明)")
         r = pick_pet(cdp, "耄耋")

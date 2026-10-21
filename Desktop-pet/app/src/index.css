@@ -65,6 +65,50 @@ body {
   display: none;
 }
 
+/* ====== 主动搭话气泡(桌宠头顶) ======
+   定位:absolute + bottom 用 calc(100% - 腰线Y) → 气泡底边贴桌宠腰线
+   淡入淡出:opacity + transform 的 CSS transition */
+.pet-speech {
+  position: absolute;
+  left: 50%;
+  transform: translate(-50%, 6px);
+  max-width: 320px;
+  padding: 7px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(60, 60, 70, 0.12);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.14);
+  color: #2a2a34;
+  font-size: 13px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  pointer-events: none;
+  opacity: 0;
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease;
+  z-index: 40;
+}
+.pet-speech--in {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+/* 小尾巴(指向桌宠) */
+.pet-speech::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -5px;
+  width: 9px;
+  height: 9px;
+  margin-left: -4.5px;
+  background: rgba(255, 255, 255, 0.95);
+  border-right: 1px solid rgba(60, 60, 70, 0.12);
+  border-bottom: 1px solid rgba(60, 60, 70, 0.12);
+  transform: rotate(45deg);
+}
+
 /* ====== 调试面板(临时) ====== */
 .debug-trigger {
   position: absolute;

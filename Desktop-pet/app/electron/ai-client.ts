@@ -3,6 +3,11 @@ import { loadConfig, getActiveSystemPrompt, getProactiveConfig, type AppConfig }
 import { mcpManager } from './mcp-client.js';
 import { formatMemoriesForPrompt } from './memory-store.js';
 import { listSkills } from './skill-registry.js';
+import {
+  newThinkState,
+  splitThinkTags,
+  type ThinkState,
+} from './ai-client.think.js';
 
 /** OpenAI 多模态 content 单元(user 消息可以混合文本和图片)。 */
 export type ChatContentPart =
@@ -97,9 +102,19 @@ function askUserConfirm(
  *   - delta.tool_calls[]      工具调用增量(按 index 聚合到 outer accum)
  *   - choices[0].finish_reason 可能是 'stop' / 'tool_calls' / 'length' 等
  */
+/**
+ * <think> 思考块的流式拆分 —— 实现在 ai-client.think.ts(独立模块,可直接跑单测)。
+ *
+ * 为什么要拆:不同推理模型把思考过程放在不同位置 ——
+ *   - DeepSeek / kimi-k3 走 `delta.reasoning_content` 字段(已有处理);
+ *   - **MiniMax-M3 直接写在 `delta.content` 里**,形如
+ *     `<think>我在思考…</think>真正答案`。
+ * 不拆的话,思考过程会**原样显示在桌宠的气泡里**(实测 77 字里有 52 字是思考)。
+ */
 function parseSseChunk(
   text: string,
   toolAccums: Map<number, ToolCallAccum>,
+  thinkState: ThinkState,
 ): {
   chunks: TurnChunk[];
   done: boolean;
@@ -127,7 +142,14 @@ function parseSseChunk(
       if (choice?.finish_reason) finishReason = choice.finish_reason;
       if (delta) {
         if (typeof delta.content === 'string' && delta.content.length > 0) {
-          chunks.push({ kind: 'answer', text: delta.content });
+          // ★ content 里可能混着 <think> 思考块 → 先拆开
+          const split = splitThinkTags(delta.content, thinkState);
+          if (split.answer.length > 0) {
+            chunks.push({ kind: 'answer', text: split.answer });
+          }
+          if (split.thinking.length > 0) {
+            chunks.push({ kind: 'thinking', text: split.thinking });
+          }
         }
         if (typeof delta.reasoning_content === 'string' && delta.reasoning_content.length > 0) {
           chunks.push({ kind: 'thinking', text: delta.reasoning_content });
@@ -207,6 +229,8 @@ function streamOneTurn(
     let gotReasoning = '';
     const toolAccums = new Map<number, ToolCallAccum>();
     let finishReason: string | null = null;
+    // <think> 块的流式拆分状态(见 splitThinkTags 注释)
+    const thinkState = newThinkState();
 
     request.on('response', (resp) => {
       statusCode = resp.statusCode;
@@ -225,7 +249,7 @@ function streamOneTurn(
       }
       resp.on('data', (chunk: Buffer) => {
         buffer += chunk.toString('utf-8');
-        const parsed = parseSseChunk(buffer, toolAccums);
+        const parsed = parseSseChunk(buffer, toolAccums, thinkState);
         buffer = parsed.rest;
         if (parsed.finishReason) finishReason = parsed.finishReason;
         for (const c of parsed.chunks) {
@@ -236,6 +260,32 @@ function streamOneTurn(
         }
       });
       resp.on('end', () => {
+        // 流结束:处理残余缓冲。
+        // 情况 1:最后一帧没有换行 → buffer 里还有未解析的 SSE 行
+        if (buffer.trim()) {
+          const parsed = parseSseChunk(buffer + '\n', toolAccums, thinkState);
+          for (const c of parsed.chunks) {
+            if (c.kind === 'answer') gotAssistantText += c.text;
+            else if (c.kind === 'thinking') gotReasoning += c.text;
+            onChunk(c);
+            win.webContents.send('ai:chunk', { reqId, delta: c.text, kind: c.kind });
+          }
+        }
+        // 情况 2:thinkState.pending 里还卡着内容(标签没闭合 / 尾部是标签前缀)
+        //   → 若是答案侧的内容,补推给渲染端(否则最后几个字会丢)
+        if (thinkState.pending) {
+          const tail = thinkState.pending;
+          thinkState.pending = '';
+          if (!thinkState.inThink) {
+            gotAssistantText += tail;
+            onChunk({ kind: 'answer', text: tail });
+            win.webContents.send('ai:chunk', { reqId, delta: tail, kind: 'answer' });
+          } else {
+            gotReasoning += tail;
+            onChunk({ kind: 'thinking', text: tail });
+            win.webContents.send('ai:chunk', { reqId, delta: tail, kind: 'thinking' });
+          }
+        }
         const toolCalls: ChatToolCall[] = [];
         const sorted = Array.from(toolAccums.entries()).sort((a, b) => a[0] - b[0]);
         for (const [, acc] of sorted) {

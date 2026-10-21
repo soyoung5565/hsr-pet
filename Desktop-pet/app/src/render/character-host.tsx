@@ -1319,12 +1319,11 @@ export const CharacterHost = forwardRef<CharacterHostHandle, Props>(function Cha
   void loadedName;
 
   // ---- Effect 3:桌宠主动行为(时段问候 + 整点报时 + 节假日 + 记忆提醒 + 无操作搭话)
-  // 实现拆到 use-proactive-greetings.ts。这里只负责把 character 信息和 hint 显示函数传进去。
-  useProactiveGreetings({
-    characterId: character.id,
-    characterName: character.name,
-    showHint: (msg, duration) => showHintRef.current?.(msg, duration),
-  });
+  // ⚠ 已移到 App 层(见 App.tsx 的 useProactiveGreetings 调用)。
+  //   原因:主动搭话是**应用级行为**,不是某个渲染 host 的行为 ——
+  //   之前只挂在 Live2D 的 character-host 上,导致 hatch-pet 角色
+  //   (我们真正在用的桌宠)**永远不会主动说话**。
+  //   移上来后两种角色一视同仁。
 
   // ---- Effect 4:同步 config.lockPosition → lockPositionRef
   // mount 时读一次,之后监听 'petAI:configChanged' 事件(SettingsPanel 改动时 dispatch)实时更新。
