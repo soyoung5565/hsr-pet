@@ -1315,6 +1315,47 @@ body {
   font-style: italic;
   padding: 6px 0;
 }
+
+/* ===== 动作点播面板(右键 → 动作)=====
+   网格排布 9 个 atlas 行,每格 = 动作名 + 一句提示 */
+.action-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  padding: 4px 2px 2px;
+}
+.action-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 4px;
+  border: 1px solid rgba(42, 42, 52, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.75);
+  cursor: pointer;
+  transition:
+    background 0.12s ease,
+    transform 0.08s ease;
+}
+.action-item:hover {
+  background: rgba(244, 162, 97, 0.16);
+  border-color: rgba(244, 162, 97, 0.5);
+}
+.action-item:active {
+  transform: scale(0.95);
+}
+.action-item-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #2a2a34;
+}
+.action-item-hint {
+  font-size: 10px;
+  color: #6a6f80;
+  text-align: center;
+  line-height: 1.25;
+}
 .hatch-pet-toolbar {
   display: flex;
   gap: 8px;

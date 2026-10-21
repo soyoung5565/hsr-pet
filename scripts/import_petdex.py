@@ -11,6 +11,15 @@
   本项目扫描器读 pet.json 的 spritesheetPath(缺省才是 spritesheet.webp),
   所以只要把下载的文件重命名成本项目约定的 spritesheet.webp 即可。
 
+★ v2 格式(1536x2288 = 8x11)必须转成 v1:
+  petdex 有两种精灵表规格:
+    v1: 1536x1872 (8列 x 9行) —— 本项目底座支持的唯一规格
+    v2: 1536x2288 (8列 x 11行) —— 前 9 行语义与 v1 完全一致,
+       多出的第 10/11 行是「留给消费客户端的额外动作」(petdex README 原话)
+  直接把 v2 当 v1 用 → 渲染端按 8x9 采样时会把第 10/11 行的像素算进
+  错误的位置,而且第 9 行之后的数据被丢弃 → 画面错乱。
+  → 导入时裁掉底部 2 行,转成标准 v1。
+
 用法:
   python import_petdex.py <slug>            # 导入一只
   python import_petdex.py <slug> ...        # 导入多只
@@ -21,14 +30,20 @@
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import sys
 import urllib.request
 from pathlib import Path
 
+from PIL import Image
+
 MANIFEST_URL = "https://petdex.dev/api/manifest"
-SPRITE_URL = "https://assets.petdex.dev/pets/{slug}-{hash}/sprite.webp"
-PETJSON_URL = "https://assets.petdex.dev/pets/{slug}-{hash}/petjson.json"
+
+# 规格常量
+V1_W, V1_H = 1536, 1872   # 8列 x 9行
+V2_W, V2_H = 1536, 2288   # 8列 x 11行
+FRAME_W, FRAME_H = 192, 208
 
 # 本项目底座的默认输出根(Electron userData)。
 # dev 态下 userData = %APPDATA%/<appName>,打包后同理。
@@ -68,6 +83,35 @@ def find_pets(manifest: dict, slugs: list[str]) -> list[dict]:
     return out
 
 
+def normalize_sheet(data: bytes) -> tuple[bytes, str]:
+    """把下载的精灵表转成本项目要的 v1 规格(1536x1872)。
+
+    返回 (转换后的字节, 说明文字)。
+
+    - 已是 v1 → 原样返回
+    - v2(1536x2288) → 裁掉底部 2 行 → v1
+    - 其他尺寸 → 抛错(宁可明确失败,也不要默默画错)
+    """
+    try:
+        im = Image.open(io.BytesIO(data))
+        im.load()
+    except Exception as e:  # noqa: BLE001
+        raise RuntimeError(f"精灵表无法解码: {e}") from e
+
+    size = im.size
+    if size == (V1_W, V1_H):
+        return data, f"v1 规格 {V1_W}x{V1_H}(无需转换)"
+
+    if size == (V2_W, V2_H):
+        # 裁掉底部 2 行(v2 的额外动作行)→ 标准 v1
+        cropped = im.crop((0, 0, V2_W, V1_H))
+        buf = io.BytesIO()
+        cropped.save(buf, format="WEBP", lossless=True, quality=100)
+        return buf.getvalue(), f"v2 规格 {V2_W}x{V2_H} → 裁掉底部 2 行转 v1"
+
+    raise RuntimeError(f"精灵表尺寸 {size[0]}x{size[1]} 不受支持(应为 {V1_W}x{V1_H} 或 {V2_W}x{V2_H})")
+
+
 def import_one(pet: dict, out_root: Path) -> tuple[bool, str]:
     slug = pet["slug"]
     sprite_url = pet.get("spritesheetUrl")
@@ -78,11 +122,13 @@ def import_one(pet: dict, out_root: Path) -> tuple[bool, str]:
     dest = out_root / slug
     dest.mkdir(parents=True, exist_ok=True)
 
-    # 1) 精灵表 —— 统一命名 spritesheet.webp(本项目契约)
+    # 1) 精灵表 —— 统一命名 spritesheet.webp(本项目契约)+ 规格归一化
     sheet = dest / "spritesheet.webp"
+    note = ""
     if not sheet.exists() or sheet.stat().st_size == 0:
         print(f"  下载精灵表 {slug} …")
-        data = http_get(sprite_url)
+        raw = http_get(sprite_url)
+        data, note = normalize_sheet(raw)
         sheet.write_bytes(data)
     else:
         print(f"  精灵表已存在,跳过 {slug}")
@@ -103,7 +149,7 @@ def import_one(pet: dict, out_root: Path) -> tuple[bool, str]:
         json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
     )
 
-    return True, f"{slug} → {dest} ({size // 1024}KB)"
+    return True, f"{slug} → {dest.name} ({size // 1024}KB){' | ' + note if note else ''}"
 
 
 def main() -> int:

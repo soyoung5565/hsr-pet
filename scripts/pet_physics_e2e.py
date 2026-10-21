@@ -171,14 +171,14 @@ class CDP:
             raise RuntimeError(f"JS 异常: {r['exceptionDetails'].get('text')}")
         return r.get("result", {}).get("value")
 
-    def mouse(self, typ: str, x: float, y: float, buttons: int = 1) -> None:
+    def mouse(self, typ: str, x: float, y: float, buttons: int = 1, button: str = "left") -> None:
         self.send(
             "Input.dispatchMouseEvent",
             {
                 "type": typ,
                 "x": x,
                 "y": y,
-                "button": "left",
+                "button": button,
                 "buttons": buttons,
                 "clickCount": 1,
             },

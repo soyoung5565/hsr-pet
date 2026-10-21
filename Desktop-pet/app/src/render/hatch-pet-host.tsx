@@ -865,7 +865,23 @@ export const HatchPetHost = forwardRef<CharacterHostHandle, Props>(function Hatc
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const EDGE_MARGIN = 80;
+    /**
+     * 漫游几何全部按**宠物实际显示尺寸**等比缩放。
+     *
+     * 为什么不能写死:底座原本用固定 EDGE_MARGIN=80px + 固定 24px/s,
+     * 但宠物可缩放(0.3~3 倍)。放大后 80px 边距相对宠物太小 → 贴边时半个身子出屏;
+     * 缩小后 80px 边距又太大 → 宠物在屏幕中央不敢动。
+     * 参照 dsh-pet 的做法:所有几何量乘 (实际宽 / 参考宽)。
+     */
+    const PET_REF_WIDTH = 192; // 参考宽:scale=1 时的单帧宽
+    const geoScale = () => (FRAME_W * scale) / PET_REF_WIDTH;
+
+    /** 边距 = 半个身位 + 一点余量,随尺寸缩放 */
+    const edgeMargin = () => Math.round((FRAME_W * scale) / 2 + 20 * geoScale());
+
+    /** 漫游速度:基准 24px/s,按尺寸缩放(小宠物慢一点,大宠物快一点) */
+    const walkSpeedPx = (base: number) => base * geoScale();
+
     const randInRange = (a: number, b: number) => a + Math.random() * (b - a);
     const planNextBehavior = (now: number) => {
       const config = behaviorConfigRef.current;
@@ -958,15 +974,16 @@ export const HatchPetHost = forwardRef<CharacterHostHandle, Props>(function Hatc
           0,
           240,
         );
-        const dx = (dirRef.current * walkSpeed * dt) / 1000;
+        const dx = (dirRef.current * walkSpeedPx(walkSpeed) * dt) / 1000;
         const cur = posRef.current;
         let nx = cur.x + dx;
-        // 容器中心点 ± 模型半宽 是模型可视边界;这里简化用 EDGE_MARGIN 做缓冲
-        if (nx < EDGE_MARGIN) {
-          nx = EDGE_MARGIN;
+        // 边距随宠物尺寸缩放 —— 放大后不能还按 80px 留白,否则半个身子出屏
+        const margin = edgeMargin();
+        if (nx < margin) {
+          nx = margin;
           dirRef.current = 1;
-        } else if (nx > window.innerWidth - EDGE_MARGIN) {
-          nx = window.innerWidth - EDGE_MARGIN;
+        } else if (nx > window.innerWidth - margin) {
+          nx = window.innerWidth - margin;
           dirRef.current = -1;
         }
         if (nx !== cur.x) {
@@ -1063,6 +1080,38 @@ export const HatchPetHost = forwardRef<CharacterHostHandle, Props>(function Hatc
     [character.id, scale],
   );
 
+  // ---- 动作点播(右键菜单用)----
+  // dsh-pet 的招牌功能:右键 → 动作分类 → 点播任意动画。
+  // 这里把「切到某一行并播 N 毫秒」抽成公共事件,菜单层通过 window 事件触发。
+  useEffect(() => {
+    /**
+     * 详情:{ row: number; durationMs?: number } — row 是 atlas 行号(0-8)
+     * 未给 row 时按别名解析(中文名/英文名都行)。
+     */
+    const onPlay = (e: Event) => {
+      const detail = (e as CustomEvent).detail as
+        | { row?: number; alias?: string; durationMs?: number }
+        | undefined;
+      if (!detail) return;
+      let row: number | null = null;
+      if (typeof detail.row === 'number') {
+        row = clampAtlasRow(detail.row, -1);
+        if (row < 0) return;
+      } else if (detail.alias) {
+        const map = buildMotionAliasMap(behaviorConfigRef.current);
+        row = pickMotionRow(map[detail.alias]) ?? pickMotionRow(map[detail.alias.toLowerCase()]);
+        if (row == null) return;
+      } else {
+        return;
+      }
+      emotionRowRef.current = row;
+      emotionUntilRef.current = performance.now() + (detail.durationMs ?? 2000);
+      frameIndexRef.current = 0;
+    };
+    window.addEventListener('pet:play-action', onPlay as EventListener);
+    return () => window.removeEventListener('pet:play-action', onPlay as EventListener);
+  }, []);
+
   const styleW = Math.round(FRAME_W * scale);
   const styleH = Math.round(FRAME_H * scale);
 
@@ -1070,6 +1119,10 @@ export const HatchPetHost = forwardRef<CharacterHostHandle, Props>(function Hatc
     <div
       ref={containerRef}
       className="character-host hatch-pet-host"
+      // 当前角色 id —— 供端到端测试断言「真的切换到了这只」,
+      // 也方便用户在 DevTools 里确认渲染的是谁。
+      data-pet-id={character.id}
+      data-pet-name={character.name}
       style={{
         // 容器中心点跟随 posRef:left/top 由 rAF 循环 / 拖窗 / 角色切换 直接改 DOM,
         // 不进 React state 避免每帧 re-render。这里只设置初始值。

@@ -54,7 +54,7 @@ interface Props {
   onToggleChat: () => void;
 }
 
-type Panel = 'root' | 'characters' | 'size' | 'ai' | 'settings';
+type Panel = 'root' | 'characters' | 'size' | 'ai' | 'settings' | 'action';
 
 function characterCategory(c: MenuCharacter): string {
   const direct = c.category?.trim();
@@ -265,6 +265,12 @@ export function PetMenu({
             onClick={() => setPanel('characters')}
           />
           <MenuBtn label="大小" icon={<MenuIcon name="ruler" />} color="#9bd5ff" onClick={() => setPanel('size')} />
+          <MenuBtn
+            label="动作"
+            icon={<MenuIcon name="action" />}
+            color="#f4a261"
+            onClick={() => setPanel('action')}
+          />
           <MenuBtn label="AI" icon={<MenuIcon name="bot" />} color="#c5e1a5" onClick={() => setPanel('ai')} />
           <MenuBtn
             label={chatOpen ? '隐藏' : '对话'}
@@ -331,6 +337,13 @@ export function PetMenu({
           onScale={onScale}
           onPreviewScale={onPreviewScale}
           onResetScale={onResetScale}
+        />
+      )}
+
+      {panel === 'action' && (
+        <DraggableActionPanel
+          onBack={() => setPanel('root')}
+          hasHatchPet={characters.some((c) => c.id === activeId && c.type === 'hatch-pet')}
         />
       )}
     </div>
@@ -412,6 +425,86 @@ function DraggableSizePanel({
         onPreviewScale={onPreviewScale}
         onResetScale={onResetScale}
       />
+    </div>,
+    document.body,
+  );
+}
+
+/**
+ * 「动作」面板 —— 点播桌宠的任意动作行。
+ *
+ * 参考 dsh-pet 的右键菜单「动作 → 分类 → 具体动画」,但本项目的
+ * hatch-pet 素材是固定的 8×9 atlas,行语义由规范定义,所以直接列 9 行即可。
+ *
+ * 行语义(见 shared/hatch-pet-behavior.ts 的 HATCH_PET_ROWS):
+ *   0 idle 待机 / 1 向右走 / 2 向左走 / 3 挥手 / 4 跳跃
+ *   5 失败 / 6 等待 / 7 工作中 / 8 回答
+ *
+ * 只有 hatch-pet 角色支持;Live2D 角色的动作走 PIXI motion,不在这列。
+ */
+const ACTION_ROWS: { row: number; label: string; hint: string }[] = [
+  { row: 0, label: '待机', hint: '站着轻轻晃' },
+  { row: 1, label: '向右走', hint: '往右迈步' },
+  { row: 2, label: '向左走', hint: '往左迈步' },
+  { row: 3, label: '挥手', hint: '打招呼' },
+  { row: 4, label: '跳跃', hint: '原地蹦一下' },
+  { row: 5, label: '失败', hint: '难过 / 生气的样子' },
+  { row: 6, label: '等待', hint: '无聊地等' },
+  { row: 7, label: '工作中', hint: '忙碌的样子' },
+  { row: 8, label: '回答', hint: '说话的样子' },
+];
+
+function DraggableActionPanel({
+  onBack,
+  hasHatchPet,
+}: {
+  onBack: () => void;
+  /** 当前角色是不是 hatch-pet(只有它有 atlas 动作行) */
+  hasHatchPet: boolean;
+}): JSX.Element {
+  const { panelRef, panelStyle, titleProps } = useDraggablePanel();
+
+  const play = (row: number) => {
+    window.dispatchEvent(
+      new CustomEvent('pet:play-action', { detail: { row, durationMs: 2200 } }),
+    );
+  };
+
+  return createPortal(
+    <div
+      className="pet-menu-panel pet-menu-panel--compact"
+      data-pet-menu-panel="true"
+      ref={panelRef}
+      style={panelStyle}
+    >
+      <div className="pet-menu-title" {...titleProps}>
+        <button className="back-btn" onClick={onBack}>
+          ←
+        </button>
+        <span>动作</span>
+      </div>
+      {!hasHatchPet ? (
+        <div className="ai-empty-hint">
+          当前角色是 Live2D 模型,动作走它自己的 motion 库(在调试面板里选)。
+          <br />
+          切换到 Hatch-Pet 角色后,这里可以逐个点播动作。
+        </div>
+      ) : (
+        <div className="action-grid">
+          {ACTION_ROWS.map((a) => (
+            <button
+              key={a.row}
+              type="button"
+              className="action-item"
+              onClick={() => play(a.row)}
+              title={a.hint}
+            >
+              <span className="action-item-label">{a.label}</span>
+              <span className="action-item-hint">{a.hint}</span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>,
     document.body,
   );
@@ -3822,7 +3915,7 @@ function MenuBtn({
 
 /** 极简线条图标 — 主菜单按钮专用,描边 currentColor,大小靠 .menu-btn .emoji 容器约束。
  *  与 chat-bubble 的 ToolIcon 一致风格,但每个图标单独定义,viewBox 统一 24×24。 */
-function MenuIcon({ name }: { name: 'swap' | 'ruler' | 'bot' | 'chat' | 'gear' | 'moon' | 'close' }) {
+function MenuIcon({ name }: { name: 'swap' | 'ruler' | 'bot' | 'chat' | 'gear' | 'moon' | 'close' | 'action' }) {
   const common = {
     width: 20,
     height: 20,
@@ -3892,6 +3985,14 @@ function MenuIcon({ name }: { name: 'swap' | 'ruler' | 'bot' | 'chat' | 'gear' |
         <svg {...common}>
           <line x1="6" y1="6" x2="18" y2="18" />
           <line x1="18" y1="6" x2="6" y2="18" />
+        </svg>
+      );
+    case 'action':
+      // 播放符号 + 手势 — 暗示"点播动作"
+      return (
+        <svg {...common}>
+          <path d="M7 4.5l12 7.5-12 7.5z" />
+          <path d="M4 3v16" />
         </svg>
       );
   }
