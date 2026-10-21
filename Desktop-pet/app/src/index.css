@@ -1356,6 +1356,26 @@ body {
   text-align: center;
   line-height: 1.25;
 }
+
+/* ===== 渲染风格切换(放大插值策略)=====
+   插画风素材用双线性(平滑),像素风用最近邻(像素) */
+.render-style-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(42, 42, 52, 0.08);
+}
+.render-style-label {
+  font-size: 11px;
+  color: #6a6f80;
+}
+.render-style-btns {
+  display: flex;
+  gap: 4px;
+}
 .hatch-pet-toolbar {
   display: flex;
   gap: 8px;

@@ -45,6 +45,10 @@ export interface CharacterHostHandle {
   playMotion: (group: string) => Promise<unknown>;
   /** 调试:复位 expression 到默认 */
   resetExpression: () => void;
+  /** 切换渲染风格(放大插值策略);返回切换后的风格 */
+  setRenderStyle?: (s: 'auto' | 'pixelated') => 'auto' | 'pixelated';
+  /** 读当前渲染风格 */
+  getRenderStyle?: () => 'auto' | 'pixelated';
 }
 
 /**

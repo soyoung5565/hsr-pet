@@ -24,6 +24,7 @@ import type {
 } from '../../electron/preload';
 import { PROVIDER_TEMPLATES } from '../../shared/provider-templates';
 import { useDraggablePanel } from '../render/use-draggable-panel';
+import type { RenderStyle } from '../render/hatch-pet-host';
 import {
   DEFAULT_CHARACTER_PERSONAS,
   type CharacterPersona,
@@ -52,6 +53,10 @@ interface Props {
   chatOpen: boolean;
   /** 切换对话面板可见性 */
   onToggleChat: () => void;
+  /** 当前渲染风格(放大插值策略) */
+  renderStyle: RenderStyle;
+  /** 切换渲染风格 */
+  onRenderStyle: (s: RenderStyle) => void;
 }
 
 type Panel = 'root' | 'characters' | 'size' | 'ai' | 'settings' | 'action';
@@ -202,6 +207,8 @@ export function PetMenu({
   onResetScale,
   chatOpen,
   onToggleChat,
+  renderStyle,
+  onRenderStyle,
 }: Props) {
   const [panel, setPanel] = useState<Panel>('root');
   const [side, setSide] = useState<'left' | 'right'>('right');
@@ -337,6 +344,9 @@ export function PetMenu({
           onScale={onScale}
           onPreviewScale={onPreviewScale}
           onResetScale={onResetScale}
+          renderStyle={renderStyle}
+          onRenderStyle={onRenderStyle}
+          hasHatchPet={characters.some((c) => c.id === activeId && c.type === 'hatch-pet')}
         />
       )}
 
@@ -391,19 +401,31 @@ function DraggableCharacterPanel({
   );
 }
 
-/** 「调整大小」面板 — 同上,单独组件好用 hook */
+/**
+ * 「调整大小」面板 — 同上,单独组件好用 hook
+ *
+ * 除了缩放滑块,还有**渲染风格**开关(放大时才看得出差别,放一起最合理):
+ *   平滑(双线性)—— 插画风素材用这个(社区桌宠、3D 渲染)
+ *   像素(最近邻)—— 像素风素材用这个(Codex 内置橘猫)
+ */
 function DraggableSizePanel({
   onBack,
   scale,
   onScale,
   onPreviewScale,
   onResetScale,
+  renderStyle,
+  onRenderStyle,
+  hasHatchPet,
 }: {
   onBack: () => void;
   scale: number;
   onScale: (s: number) => void;
   onPreviewScale: (s: number) => void;
   onResetScale: () => void;
+  renderStyle: RenderStyle;
+  onRenderStyle: (s: RenderStyle) => void;
+  hasHatchPet: boolean;
 }): JSX.Element {
   const { panelRef, panelStyle, titleProps } = useDraggablePanel();
   return createPortal(
@@ -425,6 +447,29 @@ function DraggableSizePanel({
         onPreviewScale={onPreviewScale}
         onResetScale={onResetScale}
       />
+      {hasHatchPet && (
+        <div className="render-style-row">
+          <span className="render-style-label">放大插值</span>
+          <div className="render-style-btns">
+            <button
+              type="button"
+              className={'mini-btn' + (renderStyle === 'auto' ? ' primary' : '')}
+              onClick={() => onRenderStyle('auto')}
+              title="双线性平滑 —— 适合插画风素材"
+            >
+              平滑
+            </button>
+            <button
+              type="button"
+              className={'mini-btn' + (renderStyle === 'pixelated' ? ' primary' : '')}
+              onClick={() => onRenderStyle('pixelated')}
+              title="最近邻 —— 适合像素风素材"
+            >
+              像素
+            </button>
+          </div>
+        </div>
+      )}
     </div>,
     document.body,
   );

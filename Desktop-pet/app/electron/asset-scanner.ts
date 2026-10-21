@@ -389,6 +389,8 @@ export async function scanHatchPet(
       description?: string;
       spritesheetPath?: string;
       behavior?: HatchPetBehaviorConfig;
+      /** 放大插值策略:'auto'(双线性) | 'pixelated'(最近邻) */
+      renderStyle?: 'auto' | 'pixelated';
     };
     try {
       const raw = await fs.readFile(manifestPath, 'utf-8');
@@ -416,6 +418,10 @@ export async function scanHatchPet(
       manifestPath,
       spritesheetPath: sheet,
       description: manifest.description,
+      renderStyle:
+        manifest.renderStyle === 'pixelated' || manifest.renderStyle === 'auto'
+          ? manifest.renderStyle
+          : undefined,
       behavior: mergeHatchPetBehaviorConfig(manifest.behavior),
       expressions: [],
       motions: [],

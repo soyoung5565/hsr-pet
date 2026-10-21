@@ -81,6 +81,7 @@ interface Props {
 
 const SCALE_KEY_PREFIX = 'pet:scale:';
 const POS_KEY_PREFIX = 'pet:position:';
+const RENDER_STYLE_KEY_PREFIX = 'pet:render-style:';
 const MODEL_POS_SAFE_MARGIN = 100;
 
 /**
@@ -130,6 +131,30 @@ function loadUserScale(id: string): number {
 function saveUserScale(id: string, s: number): void {
   try {
     localStorage.setItem(SCALE_KEY_PREFIX + id, s.toFixed(3));
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * 读渲染风格:用户覆盖(localStorage)优先,其次素材声明(pet.json),最后默认 auto。
+ *
+ * 优先级:localStorage(用户手动改过) > pet.json.renderStyle(素材声明) > 'auto'
+ */
+function loadRenderStyle(id: string, declared?: RenderStyle): RenderStyle {
+  try {
+    const v = localStorage.getItem(RENDER_STYLE_KEY_PREFIX + id);
+    if (v === 'auto' || v === 'pixelated') return v;
+  } catch {
+    /* ignore */
+  }
+  if (declared === 'auto' || declared === 'pixelated') return declared;
+  return 'auto';
+}
+
+function saveRenderStyle(id: string, style: RenderStyle): void {
+  try {
+    localStorage.setItem(RENDER_STYLE_KEY_PREFIX + id, style);
   } catch {
     /* ignore */
   }
@@ -344,6 +369,22 @@ function computeRowFrameCounts(img: HTMLImageElement): number[] {
   return counts;
 }
 
+/**
+ * 判断精灵表是不是像素风(pixel art)。
+ *
+ * ⚠ **本函数已被弃用,保留仅为参考** —— 两次自动检测尝试都不可靠:
+ *   v1 突变率判据:把平滑的「球棒狸」判成像素风、把像素的「耄耋」判成平滑风(全错);
+ *   v2 唯一色数判据:更错 —— 比值大小与画风几乎不相关
+ *      (平滑风大面积同色背景反而色更少)。
+ *   根本原因:从「像素统计」推断「画风」这个映射本身就不稳。
+ *   → 改用**用户显式配置**(pet.json 的 renderStyle / 设置面板),
+ *     默认 'auto'(浏览器双线性)—— 社区桌宠(主流)是插画风,双线正确;
+ *     像素风桌宠放大后略糊,但不像最近邻那样出锯齿色块。
+ */
+
+/** 渲染风格:auto = 浏览器双线性;pixelated = 最近邻(像素风专用) */
+export type RenderStyle = 'auto' | 'pixelated';
+
 export const HatchPetHost = forwardRef<CharacterHostHandle, Props>(function HatchPetHost(
   { character, roots, onLoaded, onError, onContextMenu, onScaleChange, onAnchorY, visible = true },
   ref,
@@ -387,6 +428,18 @@ export const HatchPetHost = forwardRef<CharacterHostHandle, Props>(function Hatc
   const [scale, setScale] = useState<number>(() => loadUserScale(character.id));
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * 渲染风格(放大时的插值策略)。
+   *
+   * ★ 不用自动检测 —— 试过两版像素统计判据,都判错
+   *   (突变率/唯一色数,详见上方注释)。从像素统计推断画风本身就不稳。
+   * → 素材自己声明(pet.json 的 renderStyle),用户可在设置里覆盖。
+   * 默认 'auto'(浏览器双线性):社区桌宠(主流)是插画风,双线正确;
+   * 像素风桌宠放大后略糊,但不会像最近邻那样出难看的锯齿色块。
+   */
+  const [renderStyle, setRenderStyle] = useState<RenderStyle>(() =>
+    loadRenderStyle(character.id, character.renderStyle),
+  );
 
   // 位置完全用 ref + 直接 DOM 写,不进 React state(避免每帧 re-render)。
   // 初始位置:loadModelPos 优先,没存过就放窗口中心偏下。
@@ -415,6 +468,8 @@ export const HatchPetHost = forwardRef<CharacterHostHandle, Props>(function Hatc
     pst.flying = false;
     pst.vx = 0;
     pst.vy = 0;
+    // 重新读该角色的渲染风格(不同素材声明可能不同)
+    setRenderStyle(loadRenderStyle(character.id, character.renderStyle));
     posRef.current = loadModelPos(character.id, scale) ?? {
       x: window.innerWidth / 2,
       y: window.innerHeight / 2 + 50,
@@ -424,7 +479,7 @@ export const HatchPetHost = forwardRef<CharacterHostHandle, Props>(function Hatc
       el.style.left = `${posRef.current.x}px`;
       el.style.top = `${posRef.current.y}px`;
     }
-  }, [character.id]);
+  }, [character.id, character.renderStyle]);
 
   // ---- 拖窗 + 像素穿透 hit-test ----
   // hatch-pet 不挂在 character-host 那套 PIXI 上,需要自己实现:
@@ -1076,8 +1131,15 @@ export const HatchPetHost = forwardRef<CharacterHostHandle, Props>(function Hatc
         return null;
       },
       resetExpression: () => undefined,
+      setRenderStyle: (s: RenderStyle) => {
+        const next: RenderStyle = s === 'pixelated' ? 'pixelated' : 'auto';
+        setRenderStyle(next);
+        saveRenderStyle(character.id, next);
+        return next;
+      },
+      getRenderStyle: () => renderStyle,
     }),
-    [character.id, scale],
+    [character.id, scale, renderStyle],
   );
 
   // ---- 动作点播(右键菜单用)----
@@ -1147,7 +1209,11 @@ export const HatchPetHost = forwardRef<CharacterHostHandle, Props>(function Hatc
         style={{
           width: styleW,
           height: styleH,
-          imageRendering: 'pixelated', // hatch-pet 是像素风,放大用最近邻
+          // 放大时的插值策略:
+          //   'auto'      = 浏览器双线性 —— 插画风素材(社区桌宠、3D 渲染)用这个
+          //   'pixelated' = 最近邻 —— 像素风素材(Codex 内置橘猫)用这个
+          // 素材自己在 pet.json 里声明 renderStyle,用户可在设置里覆盖。
+          imageRendering: renderStyle === 'pixelated' ? 'pixelated' : 'auto',
         }}
       />
       {error && <div className="overlay err">{error}</div>}

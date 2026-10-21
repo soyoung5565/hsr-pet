@@ -81,6 +81,13 @@ export interface HatchPetCharacter {
   manifestPath: string;    // pet.json 绝对路径
   spritesheetPath: string; // spritesheet.webp 绝对路径
   description?: string;    // pet.json.description
+  /**
+   * 本项目扩展字段:放大时的插值策略。
+   * 'auto'(默认) = 浏览器双线性,适合插画风素材;
+   * 'pixelated'   = 最近邻,适合像素风素材。
+   * 素材自己声明;用户可在设置里覆盖(localStorage 优先)。
+   */
+  renderStyle?: 'auto' | 'pixelated';
   /** 本项目扩展字段:把 Codex 9 行 atlas 映射到桌宠行为 / 情绪 / 调试别名。未配置时会套用共享默认行为。 */
   behavior?: HatchPetBehaviorConfig;
   // 占位字段(让 PetMenu 等代码兼容 Live2DCharacter 形状)

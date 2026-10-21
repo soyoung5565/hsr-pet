@@ -40,7 +40,42 @@ export default function App() {
   /** 「编码(增强)模式」— 改变聊天气泡为底部居中紧凑条,
    *  让模型完整露出。从设置面板开关,实时同步。 */
   const [codingMode, setCodingMode] = useState(false);
+  /** 渲染风格(放大插值策略)—— 'auto' 双线性 | 'pixelated' 最近邻
+   *  ★ 按角色分别存储,所以切角色时要重新读该角色的值(见下方 effect) */
+  const [renderStyle, setRenderStyle] = useState<'auto' | 'pixelated'>('auto');
   const hostRef = useRef<CharacterHostHandle>(null);
+  /** characters 的 ref 镜像 —— characters 每次渲染都是新数组,
+   *  不能进 effect 依赖(会每次都重跑),也不能在声明前用( TDZ)。
+   *  → 这里只声明 ref,赋值放到 characters 定义之后。 */
+  const charactersRef = useRef<ActiveCharacter[]>([]);
+
+  // 角色切换 → 同步该角色的渲染风格(每个角色各存各的)。
+  // ⚠ 不能直接问 hostRef:activeId 变化时新 host 还没挂载,
+  //   getRenderStyle() 会拿到上一个角色的值。这里从 localStorage 读(同一份数据源),
+  //   并等一个 tick 让新 host 挂载后再校准一次。
+  useEffect(() => {
+    if (!activeId) return;
+    const read = () => {
+      try {
+        const v = localStorage.getItem('pet:render-style:' + activeId);
+        if (v === 'pixelated' || v === 'auto') {
+          setRenderStyle(v);
+          return;
+        }
+      } catch {
+        /* ignore */
+      }
+      // 没存过 → 用素材声明(可能是 'pixelated')。
+      // renderStyle 只在 hatch-pet 角色上有(类型守卫)
+      const ch = charactersRef.current.find((c) => c.id === activeId);
+      const decl = ch && ch.type === 'hatch-pet' ? ch.renderStyle : undefined;
+      setRenderStyle(decl ?? 'auto');
+    };
+    read();
+    const t = window.setTimeout(read, 120);
+    return () => window.clearTimeout(t);
+    // ⚠ characters 每次渲染都是新数组,不能进依赖(会每次都重跑)→ 用 ref 读。
+  }, [activeId]);
 
   useEffect(() => {
     const offConfig = window.petAPI?.onAppConfigChanged?.((payload) => {
@@ -104,6 +139,8 @@ export default function App() {
     ...(index?.live2d ?? []),
     ...(index?.hatchPet ?? []),
   ];
+  // ref 镜像(声明在前面,避免 TDZ;这里赋值)
+  charactersRef.current = characters;
   const active = characters.find((c) => c.id === activeId) ?? characters[0];
 
   const handleContextMenu = useCallback(() => {
@@ -241,6 +278,11 @@ export default function App() {
         onResetScale={() => hostRef.current?.resetUserScale()}
         chatOpen={chatOpen}
         onToggleChat={() => setChatOpen((v) => !v)}
+        renderStyle={renderStyle}
+        onRenderStyle={(s) => {
+          hostRef.current?.setRenderStyle?.(s);
+          setRenderStyle(s);
+        }}
       />
 
       {/* 剪贴板建议气泡 — 全局监听,不依赖 chatOpen。
