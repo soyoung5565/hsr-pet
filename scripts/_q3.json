@@ -1,0 +1,41 @@
+[
+ {
+  "q": "Goo Engine Blender 星穹铁道 shader StellarToon 复刻 效果",
+  "engines": [
+   "tavily",
+   "doubao_cn"
+  ],
+  "n": 6
+ },
+ {
+  "q": "star rail modding SRMI 渲染 shader 替换 社区 星铁 mod 工具",
+  "engines": [
+   "tavily",
+   "doubao_cn"
+  ],
+  "n": 6
+ },
+ {
+  "q": "HSR 球谐光照 SH 系数 提取 环境光 spherical harmonics dump",
+  "engines": [
+   "tavily"
+  ],
+  "n": 5
+ },
+ {
+  "q": "游戏 模型 提取 还原 渲染 效果 不一致 光照 环境贴图 角色展示 棚拍 三点布光",
+  "engines": [
+   "doubao_cn",
+   "tavily"
+  ],
+  "n": 5
+ },
+ {
+  "q": "blender stellar toon shader node group honkai star rail replicate github",
+  "engines": [
+   "tavily",
+   "doubao_global"
+  ],
+  "n": 6
+ }
+]

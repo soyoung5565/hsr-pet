@@ -1,0 +1,42 @@
+[
+ {
+  "q": "Goo Engine 免费版 限制 渲染时间 水印 免费 下载",
+  "engines": [
+   "tavily",
+   "doubao_cn"
+  ],
+  "n": 5
+ },
+ {
+  "q": "米哈游 GDC 演讲 星穹铁道 角色渲染 技术 高品质卡通渲染 贺甲",
+  "engines": [
+   "tavily",
+   "doubao_cn"
+  ],
+  "n": 6
+ },
+ {
+  "q": "星穹铁道 角色 表情 贴图 眨眼 动画 shader 眼睛 实现",
+  "engines": [
+   "doubao_cn",
+   "tavily"
+  ],
+  "n": 5
+ },
+ {
+  "q": "HSR 描边 outline shader 反向挤出 顶点 法线 实现 还原",
+  "engines": [
+   "tavily",
+   "doubao_cn"
+  ],
+  "n": 5
+ },
+ {
+  "q": "star rail character render GDC talk miHoYo cel shading pipeline talk",
+  "engines": [
+   "tavily",
+   "doubao_global"
+  ],
+  "n": 6
+ }
+]

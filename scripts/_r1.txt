@@ -1,0 +1,98 @@
+====================================================================================================
+QUERY: 崩坏星穹铁道 shader 逆向 卡通渲染 还原
+------------------------------ doubao_cn
+------------------------------ tavily
+  * 简单复刻一下《崩坏-星穹铁道》的角色渲染
+     https://zhuanlan.zhihu.com/p/693831511
+     至于如何通过GLSL反推HLSL的？根据变量名和计算方式猜，如果不确定自己猜得对不对，可以手动写个简单的Shader，然后在Unity里手动编译成GLSL，验证一下。
+  * 【转载】原神角色渲染 Shader 分析还原原文链接 正文 序言 原神上线也半年了，卡通渲染水平属实一流。见了很多截帧分 - 掘金
+     https://juejin.cn/post/7207631397094948920
+     ```  cpp  代码解读  复制代码  //崩坏3 原始算法 SWeight = LightMapColor.g  input.color.r;  float SFactor = 1.0f - step(0.5f, SWeight); float2 halfFactor = SWeight  float2(1.2f, 1.25f) + float2(-0.1f, -0.125f); SWeight = SFactor  halfFactor.x + (1.0f - SFactor)  halfFactor.y; SWeight = floor((SWeight + input.lambert)  0.5 + 1.0 - _ShadowArea); SFactor = step(SWeight, 0); ShadowColor.rgb = SFactor  baseColor.rgb + (1 - SFactor)  Shad
+  * 从Blender到Unity URP：崩坏星穹铁道角色渲染技术还原 ...
+     https://zhuanlan.zhihu.com/p/1891924287054673274
+     从导入模型前使用Blender进行处理，到中间一步一步还原大鸭鸭的shader（传说中有专利的丝袜技术讲的很详细wwww），在Blender使用脚本对模型平滑法线并储存到顶点色。各种
+  * 21-honkai-vs-genshin.html | unity-anime-shader · Xmohe 独游魔盒 | Xmohe · 独游魔盒
+     https://xmohe.com/techie/special/unity-anime-shader/21-honkai-vs-genshin
+     unity-anime-shader全层级10 / 13 已发布  # 21-honkai-vs-genshin.html  · 9 分钟阅读·2.9k 阅读·157 赞  崩坏星穹铁道 vs 原神：两代米哈游卡通渲染技术演进对比 — Unity 卡通 Shader 技术精华专题  ## 开篇定位  对于二次元游戏开发者，米哈游是行业技术标准的实际制定者。 从《原神》到《崩坏：星穹铁道》，米哈游的卡通渲染技术在四年间完成了一次显著的代际演进。 理解这次演进，等于看清了"米哈游标准 2.0"。  本文以逆向分析 + 公开技术演讲 + 社区开源复现项目三个维度， 系统对比原神与崩坏星穹铁道在卡通渲染关键技术上的差异： SDF 面部阴影的精细化、材质分层密度的提升、非角色元素的渲染升级、技术栈的演进方向。 对独立游戏开发者，哪些技术在小团队可以借鉴，是本文的核心价值。  读完本文，你将能够：识别两代米哈游技术的关键差异、评估每项技术对
+  * 【Unity URP shader】仿少女前线2：追放风格渲染尝试V0.5
+     https://www.bilibili.com/video/BV1Vu4m1N7Pu
+     ... 卡通渲染演示，少女前线2：追放Vepley 渲染1.0 [DanbaidongRP]，《绝区零》Unity URP 绝区零卡通渲染材质逆向还原，【Unity URP】仿崩铁渲染展示，附
+------------------------------ qianfan
+  * 【Unity URP Shader】崩坏星穹铁道仿渲染 学习记录1_unity urp shader lightmap-CSDN博客
+     https://blog.csdn.net/2401_88809710/article/details/148882095
+      之前跟着好多大佬的文章,勉勉强强复刻了仿原神的渲染效果,但说实话,自己刚开始接触卡通渲染,写shader这一块,感觉很吃力。实现过程和结果有很多不满意的地方,想着趁热打铁,为了能更加熟悉卡通渲染的一些实现原理,便紧接着尝试实现了一下崩铁的效果。这一回也是卡了好长时间,但是比之前感觉理解的更深了一些。 这一部分主要先写了前期参数准备、直接光照和间接光照的计算部分。
+  * Unity Shader 实战:从零打造 NPR 卡通角色渲染
+     https://blog.csdn.net/mxwin/article/details/159116913
+      一、什么是 NPR 渲染? NPR(Non-Photorealistic Rendering,非真实感渲染)是计算机图形学中一类追求艺术化视觉效果的渲染技术,与追求照片级真实感的 PBR 渲染相对。 在游戏领域,NPR 的代表就是我们耳熟能详的卡通渲染(Cel Shading / Toon Shading): 《原神》:精致的赛璐璐二次元风格 《塞尔达传说:荒野之息》:简洁有力的卡通光影 《守望先锋》:夸张风格化的角色表现 NPR 与 PBR 渲染的核心区别可以用下图说明: PBR(真实感渲染): NPR(卡通渲染): 光照强度连续变化 光照被切割为明确色块 ░░▒▒▓▓██████ ░░░░░░████████ (平滑渐变过渡) (硬边界,卡通感) AI写代码 💡 推荐参考游戏:《原神》《塞尔达传说:荒野之息》《崩坏:星穹铁道》 NPR 渲染的核心特征: 硬阴影:明暗之间有明确的边界,而非平滑过渡 描边:角色轮廓有黑色(或彩
+  * Unity内置与URP双管线卡通渲染Shader实战指南
+     https://blog.csdn.net/weixin_34110970/article/details/161374456
+      1. 为什么“二次元模型”在Unity里不是贴个卡通贴图就完事了? 很多人第一次想做日系动漫风格角色时,下意识会去搜“Unity卡通渲染 shader”,然后下载一个现成的Shader,拖进材质球,调几个滑块——结果发现:角色边缘线要么断断续续像被狗啃过,要么在斜坡上突然变粗得离谱;光照过渡生硬得像PPT渐变;最要命的是,换到URP项目里,整个Shader直接报红,连预览窗口都黑屏。我去年帮一个独立团队重构他们已上线的二次元手游UI动效系统时,就卡在这个环节整整三周:他们用的还是Unity 2019 LTS + Built-in管线的老Shader,在迁移到URP 12.1时,所有角色模型的阴影层全崩了,头发丝儿都泛着诡异的青光。 这背后根本不是“换个Shader就行”的问题。真正的瓶颈在于:卡通化渲染本质是一套视觉约定系统,而Unity的内置管线和URP管线对这套约定的支持方式完全不同。内置管线靠固定功能管线(Fixed F
+  * 从Blender到Unity URP:崩坏星穹铁道角色渲染技术还原实战笔记——材质分区×卡通着色×眉毛穿过刘海透全解析(1)
+     https://zhuanlan.zhihu.com/p/1891924287054673274
+      【Unity/虚幻5/Blender】3种引擎 崩坏: 星穹铁道风格 卡通渲染 从球谐光照到眉毛透过刘海 完整流程_哔哩哔哩_bilibili ⬆️ 这里面对整个Shader流程讲解的非常详细! 【虚幻&Unity】两种引擎 原神风格基础卡通渲染 完整流程_哔哩哔哩_bilibili ⬆️ 第一个链接里面又一些方法讲的不是很容易理解,这个链接里面对基础的东西讲的更加易懂,尤其是SDF脸部阴影贴图的部分,是我见过的资料里面讲的最容易理解的! 给虚幻引擎/Unity的模型平滑法线描边勾线_哔哩哔哩_bilibili ⬆️ 这个视频里面讲解了在Blender中进行平滑法线的脚本,我的代码在这一部分的改动比较大,和养乐多大佬不太一样,用起来可能更加简单一点,后面会详细说。 一、进入引擎前的模型处理 其实这一步的基本理念非常简单,就是将使用了同一张材质贴图的网格放入到一个集合里面;同时区分为两个网格,一个储存模型脸上的东西,包括面、齿舌
+  * [URP]你也从零开始的卡通渲染?
+     https://zhuanlan.zhihu.com/p/9818431684
+      我们以崩坏:星穹铁道中的角色为例浅浅分析一下: 卡通渲染一般有以下主要特点 1.颜色/着色 卡通渲染着色时普遍运用大片纯色的色块进行着色,很少有颜色上逐渐的过渡,或一种说法叫做低色阶。 2.描边/线条
+====================================================================================================
+QUERY: Honkai Star Rail shader reverse engineering cel shading custom
+------------------------------ tavily
+  * GitHub - festivities/Blender-StellarToon: Shader for Goo Engine attempting to replicate the shading of Honkai:
+     https://github.com/festivities/Blender-StellarToon
+     If you're actually sane enough to traverse through my nodes and improve the shader OR you don't mind helping out in scripting and automating the process of using Star Rail models, feel free to create a pull request! I'll do my best to get to it as soon as possible ^^  ## Special thanks  All of this wouldn't be possible if it weren't for:   HoYoverse  DillonGoo Studios  Manashiku  Razmoth  radioegor146  Mero  Isaac  B
+  * Harry Alisavakis on Shaders: Cel Shading
+     https://80.lv/articles/harry-alisavakis-on-shaders-cel-shading
+     Moving into the actual shader, in line 31, I replaced “Standard” in the “surface surf” pragma with “CelShaded”, as this will be our custom
+  * Creating a Cel-Shading Toon Shader
+     https://www.youtube.com/watch?v=3SvyJrENsgc
+     [29:41] going to send this out to the ads that we had down here so down here like so then we can save this is the other asset [29:50] now it's cus way way brighter because we haven't set up the values that we're going to use so let's now go look at the material for our little robot guy and [30:00] now we can control the rim light size now you'll notice as we increase this value the rim light is actually shrinking dow
+  * Cel Shading in 3 Engines (Blender, Godot, Unity)
+     https://www.youtube.com/watch?v=Tuwz3CrMvkE
+     [5:54] let's see how we can create a real cell shading visual thanks to a custom shader. First off, we'll reselect every [6:01] mesh but the eyes and recreate a new [music] overwrite material that this time is a shader material. This way, in [6:09] the inspector of the material, we can create a new related custom shader that will allow us to really customize the lighting of our model to our liking. Oh, [6:18] and not
+  * Physically Based Cel Shading
+     https://www.youtube.com/watch?v=eBS3BOI5KnM
+     [30:11] and straightforward approach and a more elaborate one the first one consists in taking this in depth Define the range in [30:19] which we want the lines to fade and use it to interpolate to a value of one the outline pass before merging it into the [30:26] final image it does the job but yeah not with the best looking outcome I don't like how many edges become a bit [30:34] transparent I'd like something bett
+  * Genshin Impact Character Shader Breakdown [Unity URP]
+     https://adrianmendez.artstation.com/projects/wJZ4Gg
+     Shader features: - Custom ligthing for cel shading (support multiple lights, cast shadow). - Outer shadow. - Anisotropic hair. - Face shadow tweak
+------------------------------ doubao_global
+====================================================================================================
+QUERY: miHoYo proprietary toon shader technical art breakdown ramp lighting
+------------------------------ tavily
+  * Toon Shader Lighting Update (BIRP & URP) | Minions Art on Patreon
+     https://www.patreon.com/minionsart/posts/toon-shader-birp-59854502
+     Title: Toon Shader Lighting Update (BIRP & URP) | Minions Art on Patreon # Toon Shader Lighting Update (BIRP & URP). ### Edit 19 May 2025: Updated for Unity 6 and Forward+. ### Setup (Pre Unity 6). **The graph will have an error when you open it, you need to select the Source in the Custom Node and set it to the ToonRamp.hlsl file!**. After making the Shader Graph version of the toon shader, I got some comments about
+  * Forest Demo Breakdown · Delt06/urp-toon-shader Wiki · GitHub
+     https://github.com/Delt06/urp-toon-shader/wiki/Forest-Demo-Breakdown
+     Title: Forest Demo Breakdown · Delt06/urp-toon-shader Wiki · GitHub ## Navigation Menu. You signed in with another tab or window. Reload to refresh your session. You switched accounts on another tab or window. Delt06   /  **urp-toon-shader**  Public. * Notifications  You must be signed in to change notification settings. # Forest Demo Breakdown. Vladislav Kantaev edited this page Aug 6, 2022 · 6 revisions. This page 
+  * MK Toon - Stylized Shader - Free Download
+     https://unityassetpack.com/mk-toon-stylized-shader
+     Physically based properties: Artists are able to maintain their physically based metallic, specular, or roughness workflow. Physical input equals stylized output.  Lighting Styles: Built-in, Cel, Banded, and Ramp modes are available to completely customize the lighting.  Artistic: To style lighting even further, there are three artistic modes available: drawn, sketched, and hatched. Every one of them can be projected
+  * Toon Shader in Unity Using a Shader Graph with Custom Lighting! ✔️ 2020.3 | Game Dev Tutorial
+     https://www.youtube.com/watch?v=RC91uxRTId8
+     [14:06] now it's important to change the v chord when reading from the ramp texture it needs to be set to 1 for the specular ramp and 0 for the diffuse ramp [14:15] in the calculate lighting ramps graph add a new vector1 property called ramp sample v route that value into the y [14:22] input of the vector2 node it's time to wrap everything together open tune graph create another calculate [14:30] lighting ramps node 
+  * Stop Using Color Ramps For Toon Shaders
+     https://www.youtube.com/watch?v=7Pi5AUwyIJU
+     [1:12] doing this is to replace the color ramp node with a color curve node. The color curve gives us a linear graph of the color balance from the shader. If we [1:19] break this graph into steps, we can see that the lighting also becomes broken into distinct bands of light, giving the same effect as the color ramp, but with the added benefit of now being able to [1:28] use colored lights. This also has an interestin
+  * Advanced Toon Shader Pack
+     https://www.gameassetdeals.com/asset/326389/advanced-toon-shader-pack
+     ✨ Features:   💡 Advanced Lighting – Supports stylized lighting with smooth ramp shading.  🌈 Rim Lighting – Adds artistic rim light effect for character edges.  🔲 Outline Rendering – Generates toon outlines for cartoon aesthetics.  🔆 Emission Control – Allows glowing emissive effects for parts of the model.  🎨 Color Tinting – Customize base colors easily for any style.  🖌️ Shadow Ramp – Custom shadow ramp textures for
+------------------------------ doubao_global
+====================================================================================================
+QUERY: 崩三 卡通渲染 阴影 ramp 贴图 渐变 硬边 shader 技术分析
+------------------------------ doubao_cn
+------------------------------ qianfan
+  * [译] 崩坏3的卡通渲染实现方式拆解
+     https://zhuanlan.zhihu.com/p/120908528
+      1. 利用Floor实现卡通渲染 2. 利用Ramp实现卡通渲染 3. 利用IF实现卡通渲染 +  Shadow Threshold 4. 崩坏3中的卡通渲染 那么,进入正文内容了! 其实,在实现1,2,3步之前,要先用灯光矢量(light vector)和法线矢量的 点积 (dot)来实现Lambert和 HalfLambert 。但, 这部分我之前已做过分享,本文不再赘述,详细请见下文链接。
+  * 爱莉希雅——热爱105℃的你(附shader部分分析)
+     https://bbs.mihoyo.com/wd/article/30386716
+      二、Ramp (阴影色) 原神相比崩三,在diffuse基础色上多了ramp阴影实现漫反射,在卡通渲染这类npr渲染当中,我们通常会通过冷暖色调分离、硬化阴影边缘等多重手段来使画面达到风格化的目的,例如《原神》这种利用ilm贴图配合ramp texture实现色调控制的方法,其实《原神》这种用ilm贴图配合ramp实现色调控制的方法,其实早在好几年前《GUILTY GEAR Xrd》就已经存在类似的实现了,《罪恶装备》和《崩坏三》同样是这种思路的延续,只不过放到原神这边是有一张单独的ramp texture2D,原神里面角色Albedo的颜色本身并不依赖于任何光源(也有可能依靠后处理实现,不是特别确定),而是靠采样RampColor(漫反射的DarkSide部分,由diffuse*RampColor得到,BrightSide则为diffuse。根据LightMap.a通道的不同值域,选择Ramp图中的不同层。Ramp有两张,头
+  * 《崩坏3》如何做卡通渲染?
+     http://baijiahao.baidu.com/s?id=1601902434507700874&wfr=spider&for=pc
+      在最近的 Unite Beijing 2018 大会上,很多资深人士分享了他们用Unity游戏引擎来做游戏关卡、系统和动画甚至动画电影方面的经验与技巧。 三文娱此前曾发布在皮克斯担任过材质师的江毅冰分享的技术方案,点击可回顾:从3A游戏到实时渲染的动画电影,他们是怎么做到的? 今天我们继续分享米哈游技术总监贺甲在大会上的演讲《在 Unity 上实现高品质卡通渲染的效果》,略长。 下面为演讲内容: 大家好,欢迎来到Unite2018参加我们这次演讲。简单做一下自我介绍,我叫贺甲,目前在米哈游担任技术总监。我和我的团队主要关注在PBR和NPR方面的实时渲染,以及用于动画CG和游戏的过程动画和交互式物理的研究。目前,我们的一部分工作是利用Unity实现高品质的卡通渲染。 这次演讲的主题是《在Unity上实现高品质卡通渲染的效果》,这些方法的实现针对各个平台的特性进行了优化,涵盖了从移动端,到高性能PC等不同等级的平台。 我们先来简要
+  * Unity卡通渲染学习笔记——角色渲染实践
+     https://zhuanlan.zhihu.com/p/709613004
+      参考案例实现角色渲染。 Shader "Unlit/ToonShader" { Properties { _Color("Color", Color) = (1,1,1,1) _AmbientColor("Ambient Color", Color) = (0.4,0.4,0.4,1) _MainTex("Main Texture", 2D) = "white" {} _IlmTex("Ilm Texture", 2D) = "black" {} _WrapDiffuse("WrapDiffuse", Range(0, 1)) = 0.5 _ShadeEdge0("ShadeEdge0", Range(0, 1)) = 0.925 _ShadeEdge1("ShadeEdge1", Range(0, 1)) = 1 _ Specular Color("Specular Color", Color) = (0.9,0.9,0.9
+  * 程序干货:日式卡通渲染基础技术(上)
+     https://game.academy.163.com/course/careerArticle?course=519
+      一、卡通渲染的概念 卡通渲染是属于非真实感计算机图形学的范畴的,分为美式卡通和日式卡通两种。 -美式卡通:色彩连续、存在渐变色(代表作:《军团要塞2》); -日式卡通:明显的明暗交界,大范围的纯色色块(代表作:《崩坏三》); 二、着色 日式卡通渲染的着色,总而言之就是对Blinn-Phong模型的一个简化。这其中用到了一个关键的函数为smoothstep。 我们先从传统的漫反射模型说起:传统漫反射使用模型法线与光线方向的点乘值来获得光影的过渡,传统漫反射系数的过渡比较的柔和(见下图)。 常见的光照模型有Lambert模型和Half Lambert模型。 日式卡通渲染中的漫反射主要是对传统的漫反射系数做一个离散化的操作。 传统的漫反射是用dot(N,L)来模拟的,而卡通渲染的漫反射通过一个阈值将光照分为亮和暗两个部分 对于日式卡通渲染,我们主要进行以下步骤: 首先将传统漫反射进行离散化 再使用smoothstep对边缘柔和度进行

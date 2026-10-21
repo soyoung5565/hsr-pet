@@ -1,0 +1,83 @@
+# 球棒狸（随宠）资源定位结果
+
+> 结论：随宠**不需要自己建模**。游戏里的模型 + 动画已经全部定位到，
+> 且动画正好覆盖桌宠精灵表 9 行所需要的全部动作。
+
+## 一、随宠本体 = `w5_limao_00`（狸猫 = 球棒狸）
+
+昨晚记的名字「球棒狸」得到证实。资源里的内部代号是 **`limao`（狸猫）**，
+在随宠系统里挂的名是 **`paraprince`**（棒球帽 + 球棒 = 开拓者造型）。
+
+证据链（全部来自 3.3 GB asset map 的实测 grep，不是猜的）：
+
+| 线索 | 路径 |
+|---|---|
+| 随宠 prefab | `characters/characterprefabs/pet/paraprince_00/pet_paraprince_00_{logic,render}.prefab` |
+| 特效挂在随宠下 | `effects/eff_prefab/eff_pet/paraprince_00/art_w5_limao_00_eff.prefab` ← `paraprince` 目录里全是 `w5_limao` |
+| 角色本体 | `characters/monster/w5_limao_00/`（model / animation / texture / materials） |
+
+即：`paraprince`（随宠槽位名）→ 实际角色 `w5_limao_00`（狸猫本体）。
+
+## 二、模型与贴图
+
+```
+assets/asbres/characters/monster/w5_limao_00/
+  model/monster_w5_limao_00_model.fbx              ← 主模型
+  texture/monster_w5_limao_00_body_color_a.tga     ← 基础色
+  texture/monster_w5_limao_00_body_lightmap.tga    ← 光照贴图
+  texture/monster_w5_limao_00_body_mask.tga        ← 遮罩
+  texture/monster_w5_limao_00_eye_color_a.tga      ← 眼睛
+  texture/monster_w5_limao_00_{warm,cool}_ramp.png ← 色阶
+  materials/w5_limao_00_{body,eye}_mat.mat         ← 材质
+  （另有 limao_01..08 共 9 套配色材质 = 随宠染色变体）
+```
+
+## 三、动画：桌宠 9 行 → 游戏 clip 映射 ⭐
+
+**`adv_ani_*` = 随宠专用动作**（`maze` = 迷宫玩法里跟随玩家的表现），
+这批正是桌宠要的。全部存在于 `characters/monster/w5_limao_00/animation/`：
+
+| 桌宠行 | 语义 | 游戏 clip | 说明 |
+|---|---|---|---|
+| 0 | idle | `monster_w5_limao_00_adv_ani_mazestandby.fbx` | 随宠待机 |
+| 1 | running-right | `..._adv_ani_mazewalk.fbx` | 随宠行走 |
+| 2 | running-left | `..._adv_ani_mazewalk.fbx` | 同一 clip，**水平镜像** |
+| 3 | waving | `..._adv_ani_shakehand.fbx` | 挥手打招呼 |
+| 4 | jumping | `..._adv_ani_mazerun.fbx` | 跑动 |
+| 5 | failed | `..._adv_ani_kneelloop.fbx` | 跪坐循环＝蔫了/难过 |
+| 6 | waiting | `..._adv_ani_standby02.fbx` | 站立待机 2 |
+| 7 | running(忙) | `..._adv_ani_mazestandby.fbx` | 待机当"在思考" |
+| 8 | review(讲话) | `..._adv_ani_photo.fbx` | 拍照＝互动/说话 |
+
+备选（同目录）：`_adv_ani_mazestandby` / `_adv_ani_mazemoveas` / `_adv_ani_kneelas/bs` /
+`_adv_ani_appear` / `_adv_ani_turn_90_l/r` / `_adv_ani_turn_180_l/r` / `_ani_standby02`。
+
+## 四、其它 15 只随宠（以后要换宠物直接照搬）
+
+`characters/characterprefabs/pet/` 下共 16 个槽位：
+`chimera_01/02`、`complainer_00`、`emoji_00`、`hippo_00`、`paraprince_00`、
+`raccoon_00_00` ~ `raccoon_00_07`（8 个变体）、`raccoonsp_00`、`tapir_00`。
+
+即：河马 / 貘 / 浣熊 8 色 / 小 chimera / 表情包 / 抱怨怪 —— 都可以做桌宠。
+
+## 五、踩过的坑（下次直接抄）
+
+1. **`Persistent/Asb` 里没有模型**，只有 UI/debug/quest 增量补丁。
+   模型全在 `StreamingAssets/Asb`（9450 块）。先搜 Persistent 会白搜一场。
+2. **asset map 有 3.3 GB**，`json.loads()` 直接 `MemoryError`（实测）。
+   好在它是每字段一行的 pretty-print，用 `grep` 流式搜才可行 →
+   `scripts/search_map.sh`。
+3. 搜 `Pet` / `Trailblazer` 都搜不到本体（0~67 行命中），
+   因为内部代号是 `limao` + `paraprince`，不叫 pet。**得先枚举
+   `characterprefabs/pet/` 拿到槽位名，再顺着 prefab 找角色本体。**
+4. `.block` 全是 `ENCR` 头，自己写解包器不划算，用 AnimeStudio。
+
+## 六、下一步
+
+1. ✅ 定位资源（本文件）
+2. ⏳ `scripts/export_limao.sh` 导出 fbx + tga
+3. ⬜ Blender 导入真实模型 → 绑真实动画 clip 驱动 → 渲染 9 行
+   （`scripts/render_pet.py` 已支持 `--fbx`，但姿态表演还是近似，
+    换成真 clip 后要重写取帧逻辑）
+4. ⬜ 拼表 → 自检 → 丢进 `hatch-pet/球棒狸/`
+5. ⬜ 桌宠实跑验证

@@ -1,0 +1,300 @@
+{
+  "rows": [
+    {
+      "row": 0,
+      "name": "idle",
+      "files": 6,
+      "effective_frames": 6,
+      "ref": 6,
+      "contiguous": true,
+      "opaque_total": 120162,
+      "risky_px": 0,
+      "per_cell_opaque": [
+        20027,
+        20027,
+        20027,
+        20027,
+        20027,
+        20027,
+        0,
+        0
+      ],
+      "center8x8": [
+        64,
+        64,
+        64,
+        64,
+        64,
+        64,
+        0,
+        0
+      ],
+      "notes": []
+    },
+    {
+      "row": 1,
+      "name": "running-right",
+      "files": 8,
+      "effective_frames": 8,
+      "ref": 8,
+      "contiguous": true,
+      "opaque_total": 160388,
+      "risky_px": 0,
+      "per_cell_opaque": [
+        19989,
+        20108,
+        19989,
+        20108,
+        19989,
+        20108,
+        19989,
+        20108
+      ],
+      "center8x8": [
+        64,
+        64,
+        64,
+        64,
+        64,
+        64,
+        64,
+        64
+      ],
+      "notes": []
+    },
+    {
+      "row": 2,
+      "name": "running-left",
+      "files": 8,
+      "effective_frames": 8,
+      "ref": 8,
+      "contiguous": true,
+      "opaque_total": 160388,
+      "risky_px": 0,
+      "per_cell_opaque": [
+        19989,
+        20108,
+        19989,
+        20108,
+        19989,
+        20108,
+        19989,
+        20108
+      ],
+      "center8x8": [
+        64,
+        64,
+        64,
+        64,
+        64,
+        64,
+        64,
+        64
+      ],
+      "notes": []
+    },
+    {
+      "row": 3,
+      "name": "waving",
+      "files": 4,
+      "effective_frames": 4,
+      "ref": 4,
+      "contiguous": true,
+      "opaque_total": 79469,
+      "risky_px": 0,
+      "per_cell_opaque": [
+        20027,
+        19776,
+        20027,
+        19639,
+        0,
+        0,
+        0,
+        0
+      ],
+      "center8x8": [
+        64,
+        64,
+        64,
+        64,
+        0,
+        0,
+        0,
+        0
+      ],
+      "notes": []
+    },
+    {
+      "row": 4,
+      "name": "jumping",
+      "files": 5,
+      "effective_frames": 5,
+      "ref": 5,
+      "contiguous": true,
+      "opaque_total": 85761,
+      "risky_px": 0,
+      "per_cell_opaque": [
+        20027,
+        15943,
+        13824,
+        15943,
+        20024,
+        0,
+        0,
+        0
+      ],
+      "center8x8": [
+        64,
+        64,
+        64,
+        64,
+        64,
+        0,
+        0,
+        0
+      ],
+      "notes": []
+    },
+    {
+      "row": 5,
+      "name": "failed",
+      "files": 8,
+      "effective_frames": 8,
+      "ref": 8,
+      "contiguous": true,
+      "opaque_total": 161290,
+      "risky_px": 1141,
+      "per_cell_opaque": [
+        20027,
+        21245,
+        20027,
+        19912,
+        20027,
+        20113,
+        20027,
+        19912
+      ],
+      "center8x8": [
+        64,
+        64,
+        64,
+        64,
+        64,
+        64,
+        64,
+        64
+      ],
+      "notes": [
+        "导引色风险像素 1141（0.7%）"
+      ]
+    },
+    {
+      "row": 6,
+      "name": "waiting",
+      "files": 6,
+      "effective_frames": 6,
+      "ref": 6,
+      "contiguous": true,
+      "opaque_total": 120219,
+      "risky_px": 0,
+      "per_cell_opaque": [
+        20027,
+        20113,
+        20027,
+        19912,
+        20027,
+        20113,
+        0,
+        0
+      ],
+      "center8x8": [
+        64,
+        64,
+        64,
+        64,
+        64,
+        64,
+        0,
+        0
+      ],
+      "notes": []
+    },
+    {
+      "row": 7,
+      "name": "running",
+      "files": 6,
+      "effective_frames": 5,
+      "ref": 6,
+      "contiguous": false,
+      "opaque_total": 100192,
+      "risky_px": 0,
+      "per_cell_opaque": [
+        20027,
+        20113,
+        0,
+        19912,
+        20027,
+        20113,
+        0,
+        0
+      ],
+      "center8x8": [
+        64,
+        64,
+        0,
+        64,
+        64,
+        64,
+        0,
+        0
+      ],
+      "notes": [
+        "1 帧中心为空（内容偏离中心）",
+        "有效帧数 5，参考 6",
+        "中间有空帧（左连续被破坏）"
+      ]
+    },
+    {
+      "row": 8,
+      "name": "review",
+      "files": 6,
+      "effective_frames": 6,
+      "ref": 6,
+      "contiguous": true,
+      "opaque_total": 120219,
+      "risky_px": 0,
+      "per_cell_opaque": [
+        20027,
+        20113,
+        20027,
+        19912,
+        20027,
+        20113,
+        0,
+        0
+      ],
+      "center8x8": [
+        64,
+        64,
+        64,
+        64,
+        64,
+        64,
+        0,
+        0
+      ],
+      "notes": []
+    }
+  ],
+  "warnings": [
+    "row5: 导引色风险像素 1141（0.7%）",
+    "row7: 1 帧中心为空（内容偏离中心）",
+    "row7: 有效帧数 5，参考 6",
+    "row7: 中间有空帧（左连续被破坏）"
+  ],
+  "sheet_size": [
+    1536,
+    1872
+  ],
+  "all_risky_px": 1141
+}

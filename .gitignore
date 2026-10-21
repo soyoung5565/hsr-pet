@@ -1,0 +1,15 @@
+.venv/
+.tmp/
+node_modules/
+dist/
+dist-electron/
+*.log
+.npm-cache/
+dl/
+frames/test/
+tools/AnimeStudio/
+Desktop-pet-failed-clone-1011/
+Desktop-pet/app/node_modules/
+Desktop-pet/app/dist/
+Desktop-pet/app/dist-electron/
+Desktop-pet/app/build/

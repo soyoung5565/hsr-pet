@@ -1,0 +1,102 @@
+====================================================================================================
+QUERY: Goo Engine 免费版 限制 渲染时间 水印 免费 下载
+------------------------------ tavily
+  * Goo Engine V4.0.01二次元卡通漫画渲染引擎Blender插件_哔哩哔哩_bilibili
+     https://www.bilibili.com/video/BV1tk4y1Q7wX
+     番剧  直播  游戏中心  会员购  漫画  赛事  # Goo Engine V4.0.01二次元卡通漫画渲染引擎Blender插件  2024-01-11 21:53:59  210  7  课程总结  收起全部章节  关闭课程总结  暂无课程总结  更多免费资源获取无套路分享公众号：Memm设计知识分享 无套路免费自取： Goo Engine V4.0.01是一款专为Blender设计的插件，致力于为用户提供令人惊叹的二次元卡通漫画渲染效果。通过Goo Engine，您能够赋予您的场景和模型生动的、充满表现力的卡通风格。  发现《Lonely Dance》  Goo Engine  漫画  引擎  渲染  游戏  Blender预设  卡通  Blender插件  木易毛毛  Memm设计知识分享  木易毛毛   发消息  欢迎关注毛毛，个人兴趣免费分享！愿与你共同成长！ 公中号：Memm设计知识分享  关注 8.1万  
+  * Blender插件二次元卡通漫画渲染引擎Goo Engine V4.0.3
+     https://www.shejibaozang.com/15327.html
+     易于下载： Goo Engine提供了预编译的构建版本，用户可以通过Patreon平台轻松下载，无需自行编译，节省时间和精力。 支持软件版本： Goo Engine插件支持的
+  * 基於 Blender 所開發的新工具－Goo Engine，加速三渲二動漫的創作流程 - 映CG 媒體 | InCG Media - 映CG 數位影像繪圖媒體
+     https://www.incgmedia.com/new-release/goo-engine
+     專為三渲二動漫內容開發的新工具  團隊為 Goo Engine 添加了四個用於非寫實照片渲染 (NPR) 的客製化 Eevee 著色器節點，並支援 Holdout 著色器中進行 alpha 混合，可用於半透明的物件上。再來新增了基於節點的燈光組合，並在 Graph Editor 功能中隔離個別 F-Curves 的選項。近期 Goo Engine 升級到了 Blender 3.6 ，也新增幾項新功能，包含控制視埠寬度的選項，可在 Grease Pencil 筆劃上隨機應用紋理，甚至是自動關閉 Grease Pencil 筆劃的功能。  想使用 Goo Studio ，可以透過免費原始碼編譯，它本身與 Blender 的編譯相同。若需要編譯後的二進制檔案，則需要透過訂閱 DillonGoo Studios 的 Patreon 才能獲得。DillonGoo Studios 也表示他們不打算將這些新功能放置 Blender 的主要版本
+  * Blender卡通漫画渲染引擎插件Goo Engine V4.4 + 使用教程
+     https://www.gfxcamp.com/goo-engine
+     双击blender-launcher.exe打开即可. V4.4版本点击下载. 提取密码：dcux. V4.1.1版本点击下载. 提取密码：u9wx.
+  * Blender定制版软件|二次元卡通漫画渲染引擎Goo Engine v4.4 ...
+     https://www.cgzy.net/blender-goo-engine
+     插件介绍： Goo Engine是一个Blender定制软件，可渲染二次元卡通漫画风格效果。此文件是自带漫画引擎的blender，不用安装插件We have officially released.
+------------------------------ doubao_cn
+====================================================================================================
+QUERY: 米哈游 GDC 演讲 星穹铁道 角色渲染 技术 高品质卡通渲染 贺甲
+------------------------------ tavily
+  * 米哈游技术总监贺甲：卡通渲染技术国内已与世界接轨
+     https://zhuanlan.zhihu.com/p/70483835
+     贺甲:首先我们按照最高品质的表现来实现渲染,从视觉方面获得最好的效果后,再看目标平台有哪些,根据这些视觉元素关键的程度,依次对不同平台做适配取舍。
+  * 《崩坏3》：在Unity中实现高品质的卡通渲染——米哈游技术总监贺甲Unite2018演讲-魔法盒问答-magesbox
+     https://www.magesbox.com/article/detail/id/246.html
+     下图展示了动态调整模糊大小和焦散强度的结果。  在游戏场景中，我们还实现了一个看起来挺酷的效果，当给最后一个敌人致命一击的时候就会激发子弹时间，这时所有高速运动的物体都会慢下来，在下雨天我们就可以明确的看到雨滴的形状。  为了实现这个效果，我们使用了4个代表雨滴不同速度下形态的关键帧，再根据时间快慢尺度对其进行垂直拉伸。 在正常的时间尺度下，雨滴看起来像一条直线，在时间变慢的时候逐渐缩短变成雨滴形状。在这里我们同样使用了动画曲线来控制拉伸，关键帧选择和时间快慢的关系，调整起来非常灵活方便  。  刚才我们谈到的都是一些针对移动端优化的渲染功能，下面我们来介绍一下用于动画风格real-time CG或次世代游戏的渲染方法。  在过去的二年中，我们陆续制作了二个短视频，其中体现了我们的新渲染风格。(B站视频地址：  )  我们将它发布在了B站上，3天内获得了B站全站月榜排行第一的位置，至今已有超过300万的点击量。(B站视频地址： 
+  * 米哈游技术总监分享：如何用Unity做出高品质的卡通CG渲染？_贺甲
+     https://www.sohu.com/a/302474259_204824
+     娱乐  # 米哈游技术总监分享：如何用Unity做出高品质的卡通CG渲染？  2019-03-19 21:31  来源: 游戏葡萄  |  |  | 本文首发于公众号“Unity官方平台”，作者为米哈游技术总监贺甲，游戏葡萄已获转载授权。 |  米哈游，在业届素有“一家被游戏耽误的动画公司”之称。在Unite 2018大会中，米哈游技术总监贺甲就曾分享过《崩坏3》：在Unity中实现高品质的卡通渲染。  本文将由米哈游技术总监贺甲分享米哈游最新动画短片《八重樱 · 桃源恋歌》中的制作技术。  《八重樱 · 桃源恋歌》  米哈游使用Unity实时渲染的MMD次世代动画短片《八重樱 · 桃源恋歌》，今年2月在B站发布以来，获得了260多万的播放量。  《八重樱 · 桃源恋歌》这部短片，对于玩家来说绝对是一场美的享受，而对于从事Unity开发者来看，这部短片中的模型角色，动画渲染的技术绝对顶尖。  米哈游技术总监 - 贺甲  展开全文
+  * 《崩坏3》如何做卡通渲染？__财经头条__新浪财经
+     https://t.cj.sina.cn/articles/view/5893582170/15f48ed5a019007dp1?vt=4
+     新浪财经APP   宏观经济  A股  港股  美股  基金  理财  黄金  期货  能源  互联网金融  房地产  更多    外汇 管理 消费 科技 互联网 手机    保险 数码 科普 创业 银行 新三板 其他  # 《崩坏3》如何做卡通渲染？  2018年05月30日 23:15 三文娱3wyu  语音播报 缩小字体 放大字体 微博 微信 分享 0   腾讯QQ QQ空间  在最近的 Unite Beijing 2018 大会上，很多资深人士分享了他们用Unity游戏引擎来做游戏关卡、系统和动画甚至动画电影方面的经验与技巧。  今天我们继续分享米哈游技术总监贺甲在大会上的演讲《在 Unity 上实现高品质卡通渲染的效果》，略长。  这次演讲的主题是《在Unity上实现高品质卡通渲染的效果》，这些方法的实现针对各个平台的特性进行了优化，涵盖了从移动端，到高性能PC等不同等级的平台。  我们先来简要介绍一下本次演讲涉及到的
+  * GDC文章粗读——看看《Hi-FiRUSH》的卡通渲染（上） | 机核 GCORES
+     https://www.gcores.com/articles/181912
+     ——Hi-Fi RUSH的艺术理念是sharp, clean和colorful，所以阴影也需要始终保持清晰的轮廓。  \这部分理念如果看了上一篇关于罪恶装备卡通渲染的文章，应该能看出其中的一致性。  \除了脸部，角色其它部位的着色都是通过阈值判断法线与光线的夹角（的点乘）来计算的。上一篇也介绍过一样的内容，不过写成step函数会比if有更好的性能。  \对于脸部，最初的方案是调整面部法线。下面就列举了这一方案的一些问题：  \可以看出对于模型视角需要自由转动、或者模型可变化的情况，只调法线都是不适用的了。  ——为解决这一问题，我们采用了一张类似高度图（heightmap）的纹理。在内部我们把这个纹理称为阈值纹理（threshold map）。后续我会解释如何制作它，不过让我们先解释一下如何用它来计算阴影。  ——首先，计算面部朝向与光线方向的水平分量的夹角。这里水平分量指面部骨骼坐标系中相应的水平分量。最终计算结果为夹角除以P
+  * Unite 2018 | 《崩坏3》：在Unity中实现高品质的卡通渲染（下） ...
+     http://huaban.com/pins/3071104416
+     Unity中实现高品质的卡通渲染（下） : 今天我们继续分享米哈游技术总监贺甲在Unite Beijing 2018大会上的演讲下篇。
+------------------------------ doubao_cn
+====================================================================================================
+QUERY: 星穹铁道 角色 表情 贴图 眨眼 动画 shader 眼睛 实现
+------------------------------ doubao_cn
+------------------------------ tavily
+  * Unity Shader实现电影级眨眼特效：5分钟打造生动角色动画
+     https://blog.csdn.net/weixin_28197941/article/details/163458681
+     原理：准备一系列从睁眼到闭眼的角色面部贴图，通过切换贴图或播放序列帧来实现。 · 优点：实现简单，2D游戏常用。 · 缺点：资源体积大（多张纹理）；效果
+  * 【Shader】用两张贴图实现角色模型眨眼动作- 萧然CS
+     https://www.cnblogs.com/z-c-s/p/15112856.html
+     【Shader】用两张贴图实现角色模型眨眼动作. 眼睛部分单独作为一个材质球，准备一张睁眼一张闭眼的贴图，在shader中自动切换贴图，实现眨眼效果. Shader
+  * GitHub - Gaolingx/HonkaiStarRailToonShader: This is a Honkai StarRail ToonLike Shader for unity（for URP) · Git
+     https://github.com/Gaolingx/HonkaiStarRailToonShader
+     这是一个基于Unity引擎URP管线的仿制星穹铁道风格的卡通渲染项目。  ## Thanks  此Shader根据 Bilibili@给你柠檬椰果养乐多你会跟我玩吗 大佬的视频制作，另外根据 Github@stalomeow 大佬的 StarRailNPRShader 工程加入了后处理部分（bloom、tonemapping），在此非常感谢各位大佬们无私的技术分享。  ## Installation & Usage  1. 点击Window>Package Manager，从包管理器的添加菜单中选择"Add package from git URL..."，导入包（必要）。 2. 打开Project Settings>Player>Other Settings，使用线性色彩空间。 3. 找到项目使用的Universal Render Pipeline Asset，在Renderer List找到使用的Universal Rend
+  * 【unity urp】从零模仿实现自己的星铁和少前卡通渲染
+     https://zhuanlan.zhihu.com/p/31522286649
+     我们最后需要实现的星铁shader，应该包含以下内容效果 ... MIZI：二次元角色卡通渲染—眼睛篇. 重写一个shader，传一个固有贴图，然后区分一下眼睛的不同层次.
+  * 从Blender到Unity URP：崩坏星穹铁道角色渲染技术还原 ...
+     https://zhuanlan.zhihu.com/p/1891924287054673274
+     星穹铁道角色渲・ 脸部阴影贴图的部分・ 幻引擎/Unity的模型・ 还有角色的表情,每个部分单独作为一个材质・ 就使用这八个材质就可以实现渲染了・ 而且给出了按键映射! x进
+====================================================================================================
+QUERY: HSR 描边 outline shader 反向挤出 顶点 法线 实现 还原
+------------------------------ tavily
+  * BackFacingOutLine
+     https://zhuanlan.zhihu.com/p/469571054
+     ... 实现了描边效果. 常见问题. 问题一：沿法线方向挤出导致模型硬边处连接会断开. 解决办法：. • 使用平滑处理后的法线信息进行向外挤出：. 1. 将原物体法线N进行平滑处理
+  * 法线外扩描边实现与优化
+             - silence394 - 博客园
+     https://www.cnblogs.com/silence394/p/17285224.html
+     `pos = TransformObjectToHClip(attr.position); pos.xy += TransformWorldToHClipDir(TransformObjectToWorldDir(attr.normal)).xy  pos.w  _OutlineWidth;`  拉远后的效果  但此时让物体拥有形变，也就是缩放，部分位置的描边几乎消失。  这是因为带缩放的矩阵对面上的三个顶点及其法线变换之后，变换后的法线不再垂直于表面。这种现象叫非统一缩放。在这里简单提一下原因以及解决方式，更详细的可以看这篇文章。  如果想让变换后的法线垂直于变换后的表面，就不能用原来的变换矩阵了，需要用新的变换矩阵。  假设表面变换前后的切线法线分别为TT T、NN N，T′T' T′、N′N' N′。顶点的变换矩阵为MM M，法线的变换矩阵为GG G。那么有  对于1、2，将向量转置可以得到  将3、4带入6，得到  TT
+  * 描边技术总览和常见商业游戏中的描边方案（上）-网易游戏学堂-为热爱赋能
+     https://api.academy.163.com/course/careerArticle?course=769
+     问题2：描边出现断裂，或者出现了看起来很奇怪的描边  出现这个问题的原因是每个面的法线都是垂直于平面的，所以在边角处就连接不上了。一般这种问题的解决方案是另外存储一套平滑法线。具体做法是计算与该点位置相同的所有点的法线的平均值并存储在顶点上。蓝色协议里就有提到用这种方式来解决头发的描边断裂问题，图中蓝色的线条是法线：   问题3：我想给线条注入灵魂！想要有粗细变化，还想要有颜色！  由于法线外扩法是基于模型的，所以实际上对线条还是有较高的自由度来控制。如果想要做到有粗细变化的描边，可以参考罪恶装备Xrd中将粗细变化的数值写入顶点色当中。实际上就是一个外扩系数：数值越大，越向外扩，线条越粗。  至于线条的颜色，如果顶点色或者其他UV通道够用，可以将描边颜色写进顶点里面。或者采样一张专门的BaseColor贴图也能够达到同样的目的。不过似乎没找到类似修改线条颜色的例子，可能觉得黑色描边最明显吧。  ### 2、Fresnel Equ
+  * 在shader中实现五种描边方法
+     https://www.bilibili.com/read/cv24241720
+     核心是两个Pass：第一个Pass只渲染背面并且让轮廓可见（比如通过顶点外扩）；第二个Pass正常渲染正面。 快速有效，适应于大多数表面平滑的模型，但不适合立方体等平整模型
+  * ToonShadingCollection/正文/02_Outline描边篇.md at main · TechMiZ/ToonShadingCollection · GitHub
+     https://github.com/TechMiZ/ToonShadingCollection/blob/main/%E6%AD%A3%E6%96%87/02_Outline%E6%8F%8F%E8%BE%B9%E7%AF%87.md
+     ##### 变体1——Z-bias描边  原理： 分别有2类，①通过在观察空间，将模型沿z轴移动然后绘制描边层来进行实现。②绘制背面，但不膨胀，而是把背面顶点的Z值稍微向前偏移一点点，使得背面的些许部分显示出来形成描边效果。  缺点： 某些视角下存在瑕疵。       ##### 变体2——在NDC空间膨胀  原理： 主要实现方式是将法线转到ndc空间再挤出（忽略深度方向，较扁平化），然后需要注意获得屏幕宽高比，否则描边边缘会出现不均匀的情况。      优点：   描边位置在所有几何描边中维持得最好。  解决了了原版算法中描边宽度随相机远近变化的问题。          ##### 描边控制参数方案参考  1. 要考虑的信息有：宽度，勾边在哪个距离范围有宽度变化，深度偏移或裁剪，颜色，膨胀方向（修复法线方向）等。 2. 顶点数据4通道，法线仅存XY方向，剩下2通道可控制Z偏移和宽度。 3. 顶点数据4通道，法线存XYZ方向，同
+------------------------------ doubao_cn
+====================================================================================================
+QUERY: star rail character render GDC talk miHoYo cel shading pipeline talk
+------------------------------ tavily
+  * Genshin Impact GDC 2021 Talk Discusses Character Designs
+     https://www.siliconera.com/genshin-impact-gdc-2021-character-designs
+     . He elaborated on the development process and the commercialization of character designs in Genshin Impact. Thanks, [Famitsu!] The talk outlined three key points, which included why the characters are so integral to the game. These involved commercialization, storytelling that revolves around characters, and lastly the acknowledgement that characters are the most desired content for players. The developer mentioned 
+  * Game Developers Conference 2021 - MiHoYo Wiki - Fandom
+     https://mihoyo.fandom.com/wiki/Game_Developers_Conference_2021
+     And, another point worth mentioning is that in game, the characters and scenes are rendered independently using two different render pipelines.
+  * Learn about the making of Genshin Impact's open world at GDC 2021
+     https://gdconf.com/article/learn-about-the-making-of-genshin-impact-s-open-world-at-gdc-2021
+     By StaffShareshare  Genshin Impact didn’t just launch in 2020, it absolutely exploded in 2020, attracting millions of players across PC and mobile devices. And at the all-digital 2021 Game Developers Conference (running July 19th-23rd), you’ll get the rare opportunity to go behind the scenes of the hit game and learn how it was brought to life.  At the show, miHoYo CEO Haoyu Cai will discuss the game’s origins in his
+  * 'Genshin Impact': Crafting an Anime-Style Open World
+     https://www.youtube.com/watch?v=-JFyAdI_rO8
+     # 'Genshin Impact': Crafting an Anime-Style Open World ## Channel: GDC Festival of Gaming 554K subscribers 2.9K likes  ### Description 78,787 views Posted: 2022-02-16 In this 2021 GDC session, miHoYo CEO Haoyu Cai shares ideas behind the making of Genshin Impact, including the game’s anime style, character/stage design, pipeline, and more.  Register for GDC 2022, in-person in San Francisco, March 21-25, 2022:   Join 
+  * 'Genshin Impact': Crafting an Anime-Style Open World
+     https://www.youtube.com/watch?v=-JFyAdI_rO8&xstg=CAMSBhUDze3xHw%3D%3D
+     # 'Genshin Impact': Crafting an Anime-Style Open World ## Channel: GDC Festival of Gaming 554K subscribers 2.9K likes  ### Description 78,735 views Posted: 2022-02-16 In this 2021 GDC session, miHoYo CEO Haoyu Cai shares ideas behind the making of Genshin Impact, including the game’s anime style, character/stage design, pipeline, and more.  Register for GDC 2022, in-person in San Francisco, March 21-25, 2022:   Join 
+  * Game Character Pipelines at Embark: Freedom Through Structure | GDC 2026
+     https://www.youtube.com/watch?v=UFeC-VBbO90
+     [31:51] And we're currently working actively on this part that we were showing here, where we basically allowed them to build their own Houdini networks inside of the pipeline. [32:02] So we're slowly moving over to being Houdini only while still having access to Maya. [32:08] Cool. And like real-time cloth or things like that, like Havoc setups or whatever, are those joints set up on the Houdini side as well? [32:20
+------------------------------ doubao_global

@@ -1,0 +1,94 @@
+====================================================================================================
+QUERY: StarRailNPRShader stalomeow 星铁 shader 开源 实现 特征
+------------------------------ tavily
+  * GitHub - stalomeow/StarRailNPRShader: Fan-made shaders for Unity URP attempting to replicate the shading of Ho
+     https://github.com/stalomeow/StarRailNPRShader
+     ## Repository files navigation  # StarRail NPR Shader  Fan-made shaders for Unity URP attempting to replicate the shading of Honkai: Star Rail.  ## Documentation | 文档  ## Core Features | 核心特点   Supports both ripped model and MMD model.  Supports Forward and Forward+ rendering paths.  Supports transparent front hair.  Supports self shadow and per-object shadow, up to 16 on the same screen.  Custom Bloom and Tonemappin
+  * StarRailNPRShader/package.json at main · stalomeow/StarRailNPRShader · GitHub
+     https://github.com/stalomeow/StarRailNPRShader/blob/main/package.json
+     Raw  Copy raw file  Download raw file  Open symbols panel  Edit and raw actions  1  2  3  4  5  6  7  8  9  10  11  12  13  14  15  16  17  18  19  20  {  "name": "com.stalomeow.star-rail-npr-shader",  "version": "2.10.3",  "displayName": "StarRail NPR Shader",  "description": "Fan-made shaders for Unity URP attempting to replicate the shading of Honkai: Star Rail.",  "unity": "2022.3",  "documentationUrl": "  "depen
+  * 话题：#npr
+     https://trends.meirong.dev/topics/npr
+     话题：#npr. 共1 个仓库. stalomeow/StarRailNPRShader. Fan-made shaders for Unity URP attempting to replicate the shading of Honkai: Star Rail. C#☆ 981.
+  * StarRailNPRShader 项目常见问题解决方案
+     https://blog.csdn.net/gitblog_00112/article/details/143532172
+     StarRailNPRShader 是一个为Unity URP（Universal Render Pipeline）开发的非真实感渲染（NPR）着色器项目，旨在尝试复制《崩坏：星穹铁道》的渲染效果。
+  * Unity URP高质量渲染开发实践 - AkiKurisu's Site
+     https://www.akikurisu.com/blog/posts/illusion-render-pipelines-2025-11-28
+     然后因为前面适配了多Profile的次表面散射，理论上可以根据需要可以加入布料的次表面散射。  ## 阴影质量提升细节¶  由于CSM的阴影精度并不高，对于需要高精度阴影的角色，除了增加CSM等级的方式，更普遍的做法是使用逐物体阴影PerObjectShadow。  这里使用了Stalo大佬星穹铁道复刻项目stalomeow/StarRailNPRShader中的PerObjectShadow实现。  其次参考HDRP和recaeee大佬的渲染项目recaeee/RecaNoMaho\_P，为主光源阴影和逐物体阴影适配了PCSS软阴影，越远越模糊的表现能提高阴影的质感，从实践上看在开启了PenumbraMask标记半影区域以及使用ScreenSpaceShadow后，PCSS的开销比较可控，移动端可以选择开启。  另一方面，URP由于使用Shadow Caster Vertex Based Bias会在特定角度有很多瑕疵（具体可
+------------------------------ doubao_cn
+====================================================================================================
+QUERY: 星穹铁道 角色展示界面 渲染 特定 光照 设定 捏脸 界面 布光
+------------------------------ doubao_cn
+------------------------------ tavily
+  * 简单复刻一下《崩坏-星穹铁道》的角色渲染
+     https://zhuanlan.zhihu.com/p/693831511
+     由于崩铁的场景还是走的延迟渲染，角色前向渲染，只不过角色的每个部位分了两个pass渲染， 第一遍简单计算了Ramp Diffuse光照，以及Rim Shadow Light，存
+  * Unity卡通渲染学习笔记——崩铁角色渲染
+     https://zhuanlan.zhihu.com/p/711037262
+     学习案例：【【Unity/虚幻5/Blender】3种引擎崩坏: 星穹铁道风格卡通渲染从球谐光照到眉毛透过刘海完整流程】https://www.bilibili.com/video/BV1CN411C7qx?vd_source
+  * ‎崩坏：星穹铁道 App - App Store
+     https://apps.apple.com/cn/app/%E5%B4%A9%E5%9D%8F-%E6%98%9F%E7%A9%B9%E9%93%81%E9%81%93/id1523037824?l=en-GB
+     这片银河中有名为「星神」的存在，祂们造就现实，抹消星辰，在无数「世界」中留下祂们的痕迹。你——一名特殊的旅客，将与继承「开拓」意志的同伴一起，乘坐星穹列车穿越银河，沿着某位「星神」曾经所行之途前进。你将由此探索新的文明，结识新的伙伴，在无数光怪陆离的「世界」与「世界」之间展开新的冒险。所有你想知道的，都将在群星中找到答案。 那么，准备好开始这段「开拓」之旅了吗？ 《崩坏：星穹铁道》是米哈游自研的银河冒险策略游戏。你将在游戏中登上星穹列车，造访寓居宇宙的万象世界，携手形形色色的旅伴，解救「星核」引发的种种危机，对抗「星神」践踏文明的意图。 【搭乘银河列车，穿梭万象世界】 冰河永冻的异星球、巡猎孽物的巨型舰队、美梦中的盛会之星、命运未卜的永恒之地、曾坠入画卷的乐园......列车停靠的每一站，都是前所未见的银河风貌！极寒地表上唯一温度正常的坐标，究竟隐藏着怎样的秘密？玉石妙算、几近仙法的长生种联盟，缘何反被长生所困？现在，你还将入局
+  * 以防你不知道崩铁偷偷改了角色界面背景和抽卡动画- 游戏
+     https://www.bilibili.com/video/BV1jGVZ6tEf1
+     ... 角色展示背景？，离谱，星穹铁道才出一周盗版游戏就来了，【星穹铁道】这就是看板娘的实力吗？，花火真的会在角色界面后面吓你哦~，以防你忘记3.0开门
+  * 崩坏:星穹铁道- 流光忆庭
+     https://light.shenmedouyou.top
+     增加光锥详情界面. 可在主界面右下角的按钮或展示界面按Tab切换为跃迁界面. 增加命途. 贪饕. 均衡. 秩序. 神秘. 优化动画效果. 2024-03-29. 优化弹出窗口. 修复Loading界面
+====================================================================================================
+QUERY: anime character blender render match game screenshot lighting setup reproduce
+------------------------------ tavily
+  * Learn Anime-Style Lighting in Blender! (Full Tutorial)
+     https://www.youtube.com/watch?v=uapjcxLp9fM
+     This Blender lighting tutorial is suitable for beginners and intermediate Blender users who want to improve their lighting skills, understand stylized lighting principles, and create anime-style environments without complex node setups.  0:00 Setting up the Lights 3:25 Adding Background and Fixing Colors 6:55 Compositing in Blender 13:48 Final Polish  What you’ll learn:  1. How to set up anime-style lighting in Blend
+  * New to Blender: Need help achieving a stylized anime look
+     https://www.reddit.com/r/blenderhelp/comments/1tvha35/new_to_blender_need_help_achieving_a_stylized
+     Could anyone guide me on the best way to: Set up the lighting and shading to match that specific anime style from the game? Render the animation
+  * Blender3D Anime Style Background Art Render Settings
+     http://www.mclelun.com/2015/10/blender3d-anime-style-background-art.html
+     This is the scene breakdown for my anime japanese classroom artwork. I had include the Blender3D light setup and Freestyle settings,
+  * Simple Blender 3D settings to render anime style background art
+     https://www.youtube.com/watch?v=tbWBIT28Zts
+     # Simple Blender 3D settings to render anime style background art ## Channel: mclelun 99K subscribers  ### Description 584,090 views Posted: 2022-09-07 This is a simple tutorial to demonstrate on how I usually setup my Blender 3D render and lights setup to render an anime style background art.  00:00 Intro 00:46 Light Setup 03:58 Object Material Shader 04:40 Extra Options 05:29 Painting Sky and Cloud 07:44 Painting O
+  * Texturing/Rendering Anime characters in Blender [Tutorial]
+     https://www.youtube.com/watch?v=u2GAHnDaUpU
+     # Texturing/Rendering Anime characters in Blender [Tutorial] ## Channel: Daniel Kreuter 95.3K subscribers 7.1K likes  ### Description 338,375 views Posted: 2015-08-17 This tutorial has been requested by you guys for a long time. You'll learn about how to deal with texturing and rendering of Anime style 3D characters in Blender. We'll set up a material that is based on Vertex Color and also look at a render node setup
+------------------------------ doubao_global
+====================================================================================================
+QUERY: anime toon blender render outline freestyle inverted hull NPR workflow 2026
+------------------------------ tavily
+  * Daily Blender Secrets - Toon Outline with Inverted Hull (updated)
+     https://www.youtube.com/shorts/913lbud30xc
+     # Daily Blender Secrets - Toon Outline with Inverted Hull (updated) ## Channel: Blender Secrets (verified) 291K subscribers 1.6K likes  ### Description 56,597 views Posted: 2020-02-26 #b3d #blender #secrets #tutorial   More Blender tips:  Follow Blender Secrets on Patreon   / blendersecrets    Blender Secrets e-book links:  (Teachable, recommended)  (Gumroad)  (Fourthwall)  (Superhive)  (Flipped Normals)  Get a free 
+  * Blender Secrets - Cartoon-style
+     https://www.youtube.com/playlist?list=PLrB1kuJIjcg52FNsToh8g9HFrYVMt4vPT
+     Toon Outline with Inverted Hull (updated) Freestyle pencil lines. Control outline thickness with the inverted hull method. Easy outline with the inverted hull
+  * Whats the best outline for toon/anime, freestyle vs inverted hull method vs another method in 2.9? - Tutorials
+     https://blenderartists.org/t/whats-the-best-outline-for-toon-anime-freestyle-vs-inverted-hull-method-vs-another-method-in-2-9/1278907
+     I’m using blender 2.9 and the eevee render engine.  You can improve the inverted hull with some tweaks in the material, watch this:  ")  I’ll have to do some testing, but it might be good as an accent darker color for darker shadows.  Check out these methods:  ----BEER Renderer----   Here’s a detailed-looking example of the lines it can do:  BEER can have both colour and lines afaik, so don’t worry.  There’s other ex
+  * NPR Shading Archives | rogodigital.design
+     https://rogodigital.design/tutorial_topic/npr-shading
+     Looking for ExNihiloDigital? You’re in the right place! This might be a massive brand update, but we still plan on bringing you great tips, tricks, and tutorials in the future!  rogodigital.design Logo   Tutorials  Articles  Contact  rogodigital.design Logo  Home » NPR Shading  ### Create a Cartoon Outline for Any Object  #### NPR Shading Stylized Art  There are several ways to add a cartoon-style outline to objects 
+  * blenderNPR
+     https://www.youtube.com/playlist?list=PLgwXKO1o78RQKemJj0VjUJq3Zll4patG4
+     Blender 2.8 Tutorial - Freestyle Lineart Shader - Borderlands / Telltale / Anime NPR Cartoon Style. TutsByKai. 105K views • 7 years ago.
+====================================================================================================
+QUERY: 渲染 效果 和 原游戏 差距 色域 色彩管理 ACES sRGB linear Unity 对比 Blender
+------------------------------ doubao_cn
+------------------------------ tavily
+  * ACEScg vs "Linear" 渲染CG 时: r/vfx
+     https://www.reddit.com/r/vfx/comments/ixlshy/acescg_vs_linear_when_rending_from_cg?tl=zh-hans
+     根据渲染引擎的不同，渲染“线性”可能意味着你正在使用sRGB 原色（本质上是在sRGB 色域中渲染）或类似的有限色域。ACES 是一个非常宽的色域，旨在捕捉更多
+  * 色彩管理 — Blender Manual
+     https://docs.blender.org/manual/zh-hans/3.6/render/color_management.html
+     线性 ACEScg:     :   一个ACES色彩空间，被设计用于渲染和合成。它使用AP1颜色原色，D60白点和线性传递函数。虽然与ACES2065-1相似，但这个色彩空间的色域较小。较小的色域使它能更好地代表符合CIE 1931色度图的颜色。位于CIE 1931色度之外的颜色对于渲染和合成来说通常并不重要，因为人类的刺激无法表现这些颜色。      XYZ:     :   标准线性 XYZ 空间。      非颜色:      原始:     :   Does not automatically convert to linear; same as Non-Color.      Filmic Log:      Filmic sRGB:     :   与 sRGB 类似，但使用Filmic视图转换。   3.6     + Loading...  zh-hans     + Loading...  Note  You
+  * 提升Blender渲染质感：ACES色彩管理从安装到实战应用
+     https://blog.csdn.net/oo7890/article/details/149744052
+     Blender默认的色彩管理方案（如sRGB）是为显示器和网络浏览设计的，它的色域（能显示的颜色范围）和动态范围（从最暗到最亮的细节范围）相对有限。当你
+  * 为什么要使用ACES进行灯光渲染？ - ADUCG
+     https://www.aducg.com/2022/11/14/whyuseaces
+     ACES 渲染的高光与色彩表现更接近人眼感知,动态范围扩展让亮部细节保留得更好,颜色在变亮时自然去饱和。相比sRGB,ACEScg 能减少高光裁剪,
+  * 颜色配置文件导致Blender渲染图片导入引擎后
+     https://forum.cocos.org/t/topic/171302
+     图片导入unity中是认色彩管理文件的，可以正确显示。 还有更神奇的操作是：PS里通过编辑→指定配置文件为Adobe RGB(1998)后再导出，放进cocos

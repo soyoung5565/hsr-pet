@@ -1,0 +1,10 @@
+[
+  {"q": "崩坏星穹铁道 shader 逆向 卡通渲染 还原",
+   "engines": ["doubao_cn", "tavily", "qianfan"], "n": 5},
+  {"q": "Honkai Star Rail shader reverse engineering cel shading custom",
+   "engines": ["tavily", "doubao_global"], "n": 6},
+  {"q": "miHoYo proprietary toon shader technical art breakdown ramp lighting",
+   "engines": ["tavily", "doubao_global"], "n": 6},
+  {"q": "崩三 卡通渲染 阴影 ramp 贴图 渐变 硬边 shader 技术分析",
+   "engines": ["doubao_cn", "qianfan"], "n": 5}
+]
