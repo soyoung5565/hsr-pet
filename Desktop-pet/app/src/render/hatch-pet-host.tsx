@@ -12,6 +12,21 @@ import {
   HATCH_PET_ROWS,
   mergeHatchPetBehaviorConfig,
 } from '../../shared/hatch-pet-behavior';
+import {
+  DEFAULT_PHYSICS,
+  estimateReleaseVelocity,
+  landingSquash,
+  softClampSpeed,
+  squashScale,
+  springStep,
+  throwBounds,
+  throwStep,
+  throwSubsteps,
+  trimTrail,
+  type DragSample,
+  type PhysicsParams,
+  type ThrowBounds,
+} from '../../shared/pet-physics';
 import type { CharacterHostHandle } from './character-host';
 import type { Emotion } from '../../shared/emotion-map';
 
@@ -67,6 +82,40 @@ interface Props {
 const SCALE_KEY_PREFIX = 'pet:scale:';
 const POS_KEY_PREFIX = 'pet:position:';
 const MODEL_POS_SAFE_MARGIN = 100;
+
+/**
+ * 抛掷物理的共享状态 —— 拖拽 effect 写,物理步进 effect 读。
+ * 用 ref 而非 React state:每帧都变,进 state 会导致整棵子树 re-render。
+ */
+interface PhysicsState {
+  /** 是否正在飞行(被甩出) */
+  flying: boolean;
+  /** 当前位置(包围盒左上角,px) */
+  x: number;
+  y: number;
+  /** 当前速度(px/s) */
+  vx: number;
+  vy: number;
+  /** Q 弹:压缩起始时间戳 */
+  squashStart: number;
+  /** Q 弹:结束时间戳(0 = 不在压缩) */
+  squashUntil: number;
+  /** Q 弹:目标 scaleY(1 = 不压缩) */
+  squashAmount: number;
+}
+
+function createPhysicsState(): PhysicsState {
+  return {
+    flying: false,
+    x: 0,
+    y: 0,
+    vx: 0,
+    vy: 0,
+    squashStart: 0,
+    squashUntil: 0,
+    squashAmount: 1,
+  };
+}
 
 function loadUserScale(id: string): number {
   try {
@@ -315,6 +364,10 @@ export const HatchPetHost = forwardRef<CharacterHostHandle, Props>(function Hatc
   const dragMovingRef = useRef(false);
   const holdJumpRef = useRef(false);
   const dragDirRef = useRef<1 | -1>(1);
+  /** 抛掷物理共享状态(拖拽 effect 写,物理 effect 读) */
+  const physicsStateRef = useRef<PhysicsState>(createPhysicsState());
+  /** Q 弹动画的 rAF 句柄 —— 压缩是 220ms 的连续动画,不能靠一次性赋值 */
+  const squashRafRef = useRef<number | null>(null);
 
   // ---- 行为状态机 ----
   // 系统态(由外部 pet:state 注入):idle 时跑桌宠行为(walk/rest);
@@ -355,6 +408,13 @@ export const HatchPetHost = forwardRef<CharacterHostHandle, Props>(function Hatc
 
   // 角色切换时:读新角色的持久化位置 + 同步 DOM
   useEffect(() => {
+    // 切角色前先复位上一只的 Q 弹 transform,否则残留缩放会带到新角色身上
+    cancelSquash();
+    // 停止飞行
+    const pst = physicsStateRef.current;
+    pst.flying = false;
+    pst.vx = 0;
+    pst.vy = 0;
     posRef.current = loadModelPos(character.id, scale) ?? {
       x: window.innerWidth / 2,
       y: window.innerHeight / 2 + 50,
@@ -385,6 +445,49 @@ export const HatchPetHost = forwardRef<CharacterHostHandle, Props>(function Hatc
     el.style.top = `${posRef.current.y}px`;
   };
 
+  /**
+   * Q 弹挤压动画 —— 落地/点击时身体垂直压扁再回弹。
+   *
+   * 为什么单独跑一个 rAF 而不是塞进渲染循环:渲染循环按 fps 切帧(8fps),
+   * 8fps 下的挤压动画是「一顿一顿」的,完全没有弹性感。
+   * 挤压必须 60fps 才有手感。
+   *
+   * 用 canvas 的 CSS transform 做缩放:scaleY 压扁 + scaleX 反向补偿
+   * (体积守恒的错觉),比单纯压扁更像真实弹性体。
+   */
+  const startSquash = (squash: number) => {
+    const el = containerRef.current;
+    if (!el) return;
+    if (squashRafRef.current != null) cancelAnimationFrame(squashRafRef.current);
+    const start = performance.now();
+    const DURATION = 220;
+    const step = (now: number) => {
+      const u = Math.min(1, (now - start) / DURATION);
+      const scaleY = squashScale(u, squash);
+      // 体积守恒错觉:压得越扁,横向越宽
+      const scaleX = 1 + (1 - scaleY) * 0.35;
+      el.style.transform = `translate(-50%, -50%) scale(${scaleX.toFixed(4)}, ${scaleY.toFixed(4)})`;
+      if (u < 1) {
+        squashRafRef.current = requestAnimationFrame(step);
+      } else {
+        squashRafRef.current = null;
+        // 复位,避免残留 transform 影响后续布局
+        el.style.transform = 'translate(-50%, -50%)';
+      }
+    };
+    squashRafRef.current = requestAnimationFrame(step);
+  };
+
+  /** 立即取消 Q 弹动画并复位 transform(角色切换/卸载时用) */
+  const cancelSquash = () => {
+    if (squashRafRef.current != null) {
+      cancelAnimationFrame(squashRafRef.current);
+      squashRafRef.current = null;
+    }
+    const el = containerRef.current;
+    if (el) el.style.transform = 'translate(-50%, -50%)';
+  };
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -402,6 +505,10 @@ export const HatchPetHost = forwardRef<CharacterHostHandle, Props>(function Hatc
     let downStartY = 0;
     let longPressTimer: number | null = null;
     const insideRef = { current: true };
+
+    // ---- 抛掷物理状态(纯数据,渲染循环消费) ----
+    /** 拖拽轨迹采样:用于松手时估算初速 */
+    const trail: DragSample[] = [];
 
     const clearLongPressTimer = () => {
       if (longPressTimer == null) return;
@@ -440,6 +547,12 @@ export const HatchPetHost = forwardRef<CharacterHostHandle, Props>(function Hatc
       downStartX = e.screenX;
       downStartY = e.screenY;
       hasMoved = false;
+      // 新一轮拖拽:清空轨迹,停止飞行
+      trail.length = 0;
+      const pst = physicsStateRef.current;
+      pst.flying = false;
+      pst.vx = 0;
+      pst.vy = 0;
       clearLongPressTimer();
       longPressTimer = window.setTimeout(() => {
         if (!dragging || hasMoved) return;
@@ -512,13 +625,42 @@ export const HatchPetHost = forwardRef<CharacterHostHandle, Props>(function Hatc
       if (dx > 0) dragDirRef.current = 1;
       else if (dx < 0) dragDirRef.current = -1;
       dirRef.current = dragDirRef.current;
+      // 记录轨迹采样(用于松手估算初速)。用 screenX/screenY 绝对坐标。
+      trail.push({ t: performance.now(), x: e.screenX, y: e.screenY });
       pendingDx += dx;
       pendingDy += dy;
       lastX = e.screenX;
       lastY = e.screenY;
       if (rafId == null) rafId = requestAnimationFrame(flushDrag);
     };
+
     const onUp = () => {
+      if (dragging) {
+        // ---- 松手:估算初速,够快就甩出去 ----
+        const now = performance.now();
+        const v = estimateReleaseVelocity(trimTrail(trail, now), now);
+        if (v) {
+          const pst = physicsStateRef.current;
+          pst.flying = true;
+          pst.vx = v.vx;
+          pst.vy = v.vy;
+          // posRef 是中心点,物理层是左上角语义 —— 存中心点,物理 effect 里负责换算
+          pst.x = posRef.current.x;
+          pst.y = posRef.current.y;
+        } else if (hasMoved) {
+          // 拖了一段但速度不够 → 温柔放下:原地停住,给个小 Q 弹表示「被轻轻放下」
+          startSquash(0.88);
+        } else {
+          // 纯点击(没拖动)→ Q 弹回应 + 播开心动作
+          startSquash(0.72);
+          emotionRowRef.current = clampAtlasRow(
+            behaviorConfigRef.current?.emotionRows?.happy,
+            ROW_JUMPING,
+          );
+          emotionUntilRef.current = performance.now() + 1200;
+          frameIndexRef.current = 0;
+        }
+      }
       dragging = false;
       resetDragGesture();
       if (rafId != null) {
@@ -545,6 +687,101 @@ export const HatchPetHost = forwardRef<CharacterHostHandle, Props>(function Hatc
       window.petAPI?.setIgnoreMouseEvents(false, false);
     };
   }, [loaded, scale]); // 等 spritesheet 加载完才有像素可读
+
+  // ---- 抛掷物理步进(独立 rAF 循环)----
+  // 为什么不放在渲染循环里:渲染循环按 fps 切帧(8fps 很慢),
+  // 而抛掷需要 60fps 级别的积分才不卡顿/不穿透。两套循环各管各的。
+  useEffect(() => {
+    if (!loaded) return;
+    const physics: PhysicsParams = {
+      ...DEFAULT_PHYSICS,
+      throwPower: 1,
+    };
+    let raf: number | null = null;
+    let last = performance.now();
+
+    const tick = (now: number) => {
+      raf = requestAnimationFrame(tick);
+      const dt = Math.min((now - last) / 1000, 0.05);
+      last = now;
+
+      // 抛掷状态由拖拽 effect 写入(通过共享 ref)。
+      // 这里读同一份 state。
+      const st = physicsStateRef.current;
+      if (!st.flying) {
+        // 不在飞行:Q 弹动画由自己的 rAF 驱动,这里无需处理
+        return;
+      }
+
+      const bounds: ThrowBounds = throwBounds({
+        W: window.innerWidth,
+        H: window.innerHeight,
+        size: FRAME_W * scale,
+        sideAllow: 0,
+        // hatch-pet 是 192x208 像素图(12:13),不是 16:9 —— 必须传真实高度,
+        // 否则地面算高 100px,桌宠落地会有一半沉在屏幕外。
+        height: FRAME_H * scale,
+      });
+      /**
+       * ★ 坐标系换算 —— 这是移植时最容易踩的坑。
+       * 物理层(throwStep/throwBounds)用「包围盒左上角」语义(上游 dsh-pet 约定);
+       * 而本项目的 posRef 存的是「中心点」(容器 CSS 带 translate(-50%,-50%))。
+       * 两者差半个身位,不换算 → 桌宠落地时整体偏移 100px 左右。
+       */
+      const halfW = (FRAME_W * scale) / 2;
+      const halfH = (FRAME_H * scale) / 2;
+
+      // 细分积分:高速时一帧位移可能上百 px,单步会跳过落地/反弹帧
+      const steps = throwSubsteps(st.vx, st.vy, dt);
+      const sub = dt / steps;
+      for (let i = 0; i < steps; i++) {
+        // 中心点 → 左上角(物理层语义)
+        const r = throwStep(
+          { x: st.x - halfW, y: st.y - halfH, vx: st.vx, vy: st.vy },
+          sub,
+          bounds,
+          physics,
+        );
+        // 左上角 → 中心点(本项目语义)
+        st.x = r.x + halfW;
+        st.y = r.y + halfH;
+        st.vx = r.vx;
+        st.vy = r.vy;
+        if (r.bounced) {
+          // 落地/撞墙 → 触发 Q 弹(按冲击速度决定压多狠)
+          const impact = Math.abs(r.vy);
+          if (impact > 50) {
+            startSquash(landingSquash(impact));
+          }
+        }
+        if (r.atRest) {
+          st.flying = false;
+          st.vx = 0;
+          st.vy = 0;
+          // 落地后把位置写回,保证不悬空
+          posRef.current = { x: st.x, y: st.y };
+          applyPosToDom();
+          saveModelPos(characterIdRef.current, posRef.current);
+          break;
+        }
+      }
+
+      // 飞行中:位置跟着速度走
+      // ⚠ 不用 clampModelPos —— 它带 100px 安全边距,会把落地位置往回拉,
+      //   导致桌宠悬空。飞行/落地的边界完全交给物理层的 throwBounds 管。
+      if (st.flying) {
+        posRef.current = { x: st.x, y: st.y };
+        applyPosToDom();
+        // 飞行中播跑步行(朝向由飞行方向决定)
+        dirRef.current = st.vx >= 0 ? 1 : -1;
+      }
+    };
+
+    raf = requestAnimationFrame(tick);
+    return () => {
+      if (raf != null) cancelAnimationFrame(raf);
+    };
+  }, [loaded, scale]);
 
   // 加载 spritesheet — character 切换 / 路径变更时重新加载
   useEffect(() => {
@@ -685,6 +922,12 @@ export const HatchPetHost = forwardRef<CharacterHostHandle, Props>(function Hatc
             : clampAtlasRow(config?.walkLeftRow, ROW_RUNNING_LEFT);
       } else if (draggingRef.current && holdJumpRef.current) {
         row = clampAtlasRow(config?.draggingRow, ROW_JUMPING);
+      } else if (physicsStateRef.current.flying) {
+        // 飞行中:播跑步行(朝向由飞行方向决定)
+        row =
+          dirRef.current === 1
+            ? clampAtlasRow(config?.walkRightRow, ROW_RUNNING_RIGHT)
+            : clampAtlasRow(config?.walkLeftRow, ROW_RUNNING_LEFT);
       } else if (emotionRowRef.current != null) {
         row = emotionRowRef.current;
       } else if (systemRef.current === 'thinking') {
@@ -701,11 +944,13 @@ export const HatchPetHost = forwardRef<CharacterHostHandle, Props>(function Hatc
       }
 
       // 移动位置(只在系统态 idle + behavior=walk + emotion 不在打断时)
+      // 飞行中不移动 —— 抛掷物理已经在写 posRef,两套同时改会打架。
       if (
         systemRef.current === 'idle' &&
         behaviorRef.current === 'walk' &&
         emotionRowRef.current == null &&
-        !draggingRef.current
+        !draggingRef.current &&
+        !physicsStateRef.current.flying
       ) {
         const walkSpeed = clampPositiveNumber(
           config?.walkSpeed,
