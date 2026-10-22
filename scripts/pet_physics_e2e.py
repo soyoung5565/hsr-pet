@@ -76,13 +76,13 @@ def find_page(port: int = DEFAULT_PORT) -> str:
 class WS:
     """最小 WebSocket 客户端(标准库实现,不带 Origin 头)。"""
 
-    def __init__(self, ws_url: str):
+    def __init__(self, ws_url: str, timeout: float = 20.0):
         m = re.match(r"ws://([^:/]+):(\d+)(/.*)", ws_url)
         if not m:
             raise RuntimeError(f"无法解析 ws url: {ws_url}")
         host, port, path = m.group(1), int(m.group(2)), m.group(3)
         key = base64.b64encode(os.urandom(16)).decode()
-        self.s = socket.create_connection((host, port), timeout=20)
+        self.s = socket.create_connection((host, port), timeout=timeout)
         req = (
             f"GET {path} HTTP/1.1\r\nHost: {host}:{port}\r\n"
             "Upgrade: websocket\r\nConnection: Upgrade\r\n"
@@ -141,8 +141,10 @@ class WS:
 
 
 class CDP:
-    def __init__(self, ws_url: str):
-        self.ws = WS(ws_url)
+    def __init__(self, ws_url: str, timeout: float = 20.0):
+        # ★ timeout 必须可调:AI 对话类调用要等几十秒,
+        #   固定 20s 会让 90s 的 await 必然超时(看着像产品挂了,其实是测试工具限制)。
+        self.ws = WS(ws_url, timeout=timeout)
         self._id = 0
 
     def send(self, method: str, params: dict | None = None) -> dict:

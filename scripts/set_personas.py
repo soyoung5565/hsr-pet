@@ -178,23 +178,34 @@ def main() -> int:
     slots = cfg.get('characterPersonas') or {}
     changed = 0
     for name, p in PERSONAS.items():
-        if name not in slots:
-            slots[name] = {
-                'id': 'p_' + name,
-                'name': name,
-                'displayName': name,
-                'personality': p['personality'],
-                'speakingStyle': p['speakingStyle'],
-            }
-            changed += 1
+        entry = {
+            'id': 'p_' + name,
+            'name': name,
+            'displayName': name,
+            'personality': p['personality'],
+            'speakingStyle': p['speakingStyle'],
+        }
+        cur = slots.get(name)
+        # ★ 正确形状是 {activeId, personas:[entry]} —— config-store 的
+        #   CharacterPersonaSlot 就是这么定义的。写成扁平对象会让
+        #   slot.personas 变 undefined → 面板/气泡读 .length 直接 TypeError。
+        #   已经正确的 slot 只更新内容,保留用户的 activeId 和额外条目。
+        if isinstance(cur, dict) and isinstance(cur.get('personas'), list):
+            act = cur.get('activeId')
+            ps = cur['personas']
+            idx = next((i for i, e in enumerate(ps) if e.get('id') == act), None)
+            if idx is None and ps:
+                idx = 0
+            if idx is None:
+                ps = [entry]
+                act = entry['id']
+            else:
+                ps[idx] = {**ps[idx], **{k: v for k, v in entry.items() if k != 'id'}}
+            slots[name] = {'activeId': act or entry['id'], 'personas': ps}
         else:
-            # 已存在 → 覆盖内容(保持 id/activeId 结构)
-            slots[name].update({
-                'displayName': name,
-                'personality': p['personality'],
-                'speakingStyle': p['speakingStyle'],
-            })
-            changed += 1
+            # 扁平对象(旧脚本写坏的)→ 包成标准 slot
+            slots[name] = {'activeId': entry['id'], 'personas': [entry]}
+        changed += 1
     cfg['characterPersonas'] = slots
 
     print(f"人设条目:{len(slots)}(本次更新 {changed} 个)")

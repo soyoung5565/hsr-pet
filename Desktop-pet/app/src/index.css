@@ -67,11 +67,11 @@ body {
 
 /* ====== 主动搭话气泡(桌宠头顶) ======
    定位:absolute + bottom 用 calc(100% - 腰线Y) → 气泡底边贴桌宠腰线
-   淡入淡出:opacity + transform 的 CSS transition */
+   淡入用 CSS animation(挂载即播放),不依赖 JS 时序 ——
+   之前用 transition + 两阶段 state,实测会卡在 opacity:0 永不显示。 */
 .pet-speech {
   position: absolute;
   left: 50%;
-  transform: translate(-50%, 6px);
   max-width: 320px;
   padding: 7px 12px;
   border-radius: 12px;
@@ -84,15 +84,32 @@ body {
   white-space: pre-wrap;
   word-break: break-word;
   pointer-events: none;
-  opacity: 0;
-  transition:
-    opacity 0.18s ease,
-    transform 0.18s ease;
   z-index: 40;
+  animation: pet-speech-in 0.18s ease-out both;
 }
-.pet-speech--in {
-  opacity: 1;
-  transform: translate(-50%, 0);
+/* 淡出阶段(到期后) */
+.pet-speech--out {
+  animation: pet-speech-out 0.2s ease-in both;
+}
+@keyframes pet-speech-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 6px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+@keyframes pet-speech-out {
+  from {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+  to {
+    opacity: 0;
+    transform: translate(-50%, -4px);
+  }
 }
 /* 小尾巴(指向桌宠) */
 .pet-speech::after {

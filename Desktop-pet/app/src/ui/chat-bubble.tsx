@@ -398,8 +398,10 @@ export function ChatBubble({ visible, onClose, anchorY, characterName, codingMod
       // 1) 当前角色的 active persona
       if (characterName) {
         const slot = cfg.characterPersonas?.[characterName];
-        if (slot && slot.personas.length > 0) {
-          const cur = slot.personas.find((p) => p.id === slot.activeId) ?? slot.personas[0];
+        // ★ 防御非数组 slot(历史数据写过扁平对象),见下方 resolveActivePersona 同注释
+        const list = Array.isArray(slot?.personas) ? slot.personas : [];
+        if (list.length > 0) {
+          const cur = list.find((p) => p.id === slot!.activeId) ?? list[0];
           if (cur.displayName) {
             setSkillName(cur.displayName);
             return;
@@ -706,9 +708,11 @@ export function ChatBubble({ visible, onClose, anchorY, characterName, codingMod
     try {
       const cfg = await window.petAPI?.getConfig?.();
       const slot = cfg?.characterPersonas?.[name];
-      if (slot && slot.personas.length > 0) {
-        const cur =
-          slot.personas.find((p) => p.id === slot.activeId) ?? slot.personas[0];
+      // ★ Array.isArray 防御:config 里的 slot 可能不是 {personas,activeId}
+      //   形状(历史脚本写坏过),否则 .length 直接抛 TypeError 断掉整条链路。
+      const list = Array.isArray(slot?.personas) ? slot.personas : [];
+      if (list.length > 0) {
+        const cur = list.find((p) => p.id === slot!.activeId) ?? list[0];
         const hasContent = (cur.personality ?? '').trim().length > 0;
         if (hasContent) {
           return {

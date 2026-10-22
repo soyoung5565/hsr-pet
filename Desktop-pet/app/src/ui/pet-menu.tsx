@@ -1532,13 +1532,16 @@ function AiSettingsPanel({
       const fixedSlots: Record<string, CharacterPersonaSlot> = {};
       for (const [name, slot] of Object.entries(slots)) {
         const seed = DEFAULT_CHARACTER_PERSONAS[name];
-        if (!seed || !slot || slot.personas.length === 0) {
+        // ★ slot.personas 可能非数组(历史脚本写过扁平对象)→ 先兜成空数组,
+        //   否则这里的 .length 会抛 TypeError,整个设置面板初始化直接中断。
+        const slotList = Array.isArray(slot?.personas) ? slot.personas : [];
+        if (!seed || !slot || slotList.length === 0) {
           fixedSlots[name] = slot;
           continue;
         }
         const stale = STALE_FINGERPRINTS[name] ?? [];
         let slotChanged = false;
-        const personas = slot.personas.map((p) => {
+        const personas = slotList.map((p) => {
           const empty = (p.personality ?? '').trim().length === 0;
           const isStale = stale.some((kw) => (p.personality ?? '').includes(kw));
           if (empty || isStale) {
@@ -1583,7 +1586,11 @@ function AiSettingsPanel({
    *  另:若已有 slot 但当前 active entry 的 personality 是空字符串(早期版本物化的"骨架"persona),
    *  则用最新 DEFAULT_CHARACTER_PERSONAS 的内容覆盖该 entry,避免面板里看到一片空白。*/
   const ensureSlot = (name: string): CharacterPersonaSlot => {
-    const cur = personaSlots[name];
+    const raw = personaSlots[name];
+    // ★ 统一兜底:非 {personas:[]} 形状一律当「没有」处理,
+    //   否则后面 cur.personas.length / .map 都会抛。
+    const cur: CharacterPersonaSlot | undefined =
+      raw && Array.isArray(raw.personas) ? raw : undefined;
     const seed = DEFAULT_CHARACTER_PERSONAS[name];
     if (cur && cur.personas.length > 0) {
       // 检测空骨架并就地补齐(只补 personality 为空的那一项)
@@ -1610,7 +1617,12 @@ function AiSettingsPanel({
     return { personas: [entry], activeId: entry.id };
   };
   const slot = editingCharacter
-    ? personaSlots[editingCharacter] ?? ensureSlot(editingCharacter)
+    ? (() => {
+        // ★ 同 ensureSlot 的兜底:扁平 slot 直接当没有,否则下面的
+        //   slot.personas.find 会抛。
+        const raw = personaSlots[editingCharacter];
+        return raw && Array.isArray(raw.personas) ? raw : ensureSlot(editingCharacter);
+      })()
     : null;
   const activePersona =
     slot && slot.personas.find((p) => p.id === slot.activeId)

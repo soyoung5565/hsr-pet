@@ -138,9 +138,12 @@ async function resolvePersona(name: string): Promise<CharacterPersona | null> {
   try {
     const cfg = await window.petAPI?.getConfig?.();
     const slot = cfg?.characterPersonas?.[name];
-    if (slot && slot.personas.length > 0) {
-      const cur =
-        slot.personas.find((p) => p.id === slot.activeId) ?? slot.personas[0];
+    // ★ slot.personas 可能不是数组 —— 早期脚本曾把 slot 写成扁平 persona 对象。
+    //   不加 Array.isArray 就会 TypeError: reading 'length' of undefined,
+    //   整个异步链断掉(主动搭话/人设解析全静默失效)。
+    const list = Array.isArray(slot?.personas) ? slot.personas : [];
+    if (list.length > 0) {
+      const cur = list.find((p) => p.id === slot!.activeId) ?? list[0];
       if ((cur.personality ?? '').trim().length > 0) {
         return {
           displayName: cur.displayName,
@@ -255,7 +258,11 @@ export function useProactiveGreetings(args: Args): void {
   useEffect(() => {
     const signal = { disposed: false };
     /** 始终读最新的 showHint(避免闭包陷阱) */
-    const emit = (msg: string, duration: number) => showHintRef.current(msg, duration);
+    const emit = (msg: string, duration: number) => {
+      // eslint-disable-next-line no-console
+      console.log('[proactive] emit ->', JSON.stringify(msg), 'duration=', duration);
+      showHintRef.current(msg, duration);
+    };
 
     /** 调 AI 拿一句话并显示;失败用 fallback */
     const speak = async (
@@ -435,6 +442,8 @@ export function useProactiveGreetings(args: Args): void {
     const onCharacterSwitched = async () => {
       const cfg = await window.petAPI?.getConfig?.();
       const pro = cfg?.proactive;
+      // eslint-disable-next-line no-console
+      console.log('[proactive] character-switched: enabled=', pro?.enabled, 'interactOnSwitch=', pro?.interactOnSwitch);
       if (!pro?.enabled || !pro.interactOnSwitch) return;
       void speak(
         '主人刚刚把你切换到当前界面(模型刚加载完)。' +

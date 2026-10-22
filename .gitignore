@@ -5,6 +5,8 @@ dist/
 dist-electron/
 *.log
 .npm-cache/
+__pycache__/
+*.pyc
 dl/
 frames/test/
 tools/AnimeStudio/
