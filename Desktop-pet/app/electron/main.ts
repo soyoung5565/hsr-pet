@@ -27,6 +27,7 @@ import {
   clearMemories,
   type MemoryCategory,
 } from './memory-store.js';
+import { systemIdle } from './system-idle.js';
 
 /** 记忆的可选元数据(分类 / 重要度)。从渲染端传进来,需要校验。 */
 interface MemoryOpts {
@@ -870,6 +871,13 @@ function emitDisplaysChanged(): void {
 //   "The 'screen' module can't be used before the app 'ready' event",
 //   那会让整个 main 进程加载失败、桌宠根本起不来。
 //   所以注册动作放在 app.whenReady() 回调里(见下方),这里只留函数定义。
+
+// IPC: 系统级用户空闲时长(Windows GetLastInputInfo)
+// 桌宠是 click-through 的置顶窗,渲染端收不到用户真实的鼠标键盘事件 ——
+// "用户在不在操作"只能问系统要。
+ipcMain.handle('system:idle', async () => {
+  return await systemIdle.get();
+});
 
 // IPC: Agent 联动 —— 探测本机可用 agent CLI
 // 每次都重新探测(用户可能刚装完/刚登录),不做缓存:静态检查成本极低。

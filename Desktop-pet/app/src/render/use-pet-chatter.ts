@@ -25,8 +25,15 @@ interface Args {
   characterName: string;
   /** 在桌宠头顶气泡显示一段文字,duration 毫秒后自动消失。 */
   showHint: (msg: string, duration: number) => void;
-  /** 最近一次用户活动的时间戳(ms)。碎碎念选「安静时段」用。 */
-  getLastActivityAt: () => number;
+  /**
+   * 取「用户空闲了多久」(ms)。
+   *
+   * ⚠ 必须来自**系统级**探测(GetLastInputInfo),不能用渲染端的 mousemove/keydown:
+   *   桌宠窗口是 click-through 的置顶窗,用户在下面操作别的应用时,
+   *   本窗口一个事件都收不到 → 永远判定"用户一直很闲" → 打字时也碎碎念。
+   *   主进程已把探测结果通过 petAPI.systemIdle() 暴露出来。
+   */
+  getIdleMs: () => Promise<number>;
 }
 
 /** 一次碎碎念显示多久。比主动搭话长一点 —— 用户没在等,慢点读没关系。 */
@@ -162,15 +169,15 @@ function buildTopic(now: Date, minutesSinceActivity: number): string {
 }
 
 export function usePetChatter(args: Args): void {
-  const { characterId, characterName, showHint, getLastActivityAt } = args;
+  const { characterId, characterName, showHint, getIdleMs } = args;
 
   const showHintRef = useRef(showHint);
   useEffect(() => {
     showHintRef.current = showHint;
   });
-  const lastActivityRef = useRef(getLastActivityAt);
+  const getIdleMsRef = useRef(getIdleMs);
   useEffect(() => {
-    lastActivityRef.current = getLastActivityAt;
+    getIdleMsRef.current = getIdleMs;
   });
 
   useEffect(() => {
@@ -230,14 +237,18 @@ export function usePetChatter(args: Args): void {
       if (!inActiveHours(now.getHours(), cfg.startHour, cfg.endHour)) return;
 
       // 只在主人安静时碎碎念(有操作时闭嘴,避免打断)
-      const sinceActivity = Date.now() - lastActivityRef.current();
-      if (cfg.onlyWhenIdle && sinceActivity < 3 * 60_000) return;
+      // ⚠ idleMs = -1 表示"探测不可靠"(非 Windows / PS 起不来)。
+      //   这时**不能**当成"用户刚动过"(-1 < 3分钟 → 永远不碎碎念,功能等于废掉),
+      //   应当放行 —— 宁可多嘴一句,也不能让功能静默失效。
+      const idleMs = await getIdleMsRef.current();
+      const idleReliable = idleMs >= 0;
+      if (cfg.onlyWhenIdle && idleReliable && idleMs < 3 * 60_000) return;
 
       const persona = await resolvePersona(characterName);
       const sys = buildCharacterSystemPrompt(persona);
       if (!sys) return;
 
-      const minutes = Math.floor(sinceActivity / 60_000);
+      const minutes = idleReliable ? Math.floor(idleMs / 60_000) : 0;
       const topic = buildTopic(now, minutes);
       const userPrompt =
         `${topic}\n\n` +

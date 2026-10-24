@@ -57,17 +57,18 @@ export default function App() {
   const activeNameRef = useRef<string>('');
 
   /**
-   * 全局「用户最后一次活动」时间戳。
+   * ⚠ 桌宠窗口自己的鼠标/键盘事件。
    *
-   * 为什么放在 App 层而不是各 hook 里各记一份:
-   *   多个 hook(主动搭话 / 碎碎念)都要判「主人闲了多久」,
-   *   各记一份会因为挂载时机不同而互相不一致(比如碎碎念晚挂 2 秒,
-   *   就把那 2 秒算成"用户没动过")。统一一份 ref,谁读都是同一个数。
+   *   这**不能**代表"用户在操作电脑" —— 桌宠是 click-through 的置顶窗,
+   *   用户在下面操作别的应用时,本窗口一个事件都收不到。
+   *   所以这里只记录"用户在桌宠窗口上动过"(点它、拖它),
+   *   真正判断"用户在不在忙"要用主进程的 systemIdle()(Windows GetLastInputInfo),
+   *   见 usePetChatter 的 getIdleMs。
    */
-  const lastActivityAtRef = useRef<number>(Date.now());
+  const lastPetWindowActivityRef = useRef<number>(Date.now());
   useEffect(() => {
     const mark = () => {
-      lastActivityAtRef.current = Date.now();
+      lastPetWindowActivityRef.current = Date.now();
     };
     window.addEventListener('mousemove', mark, { passive: true });
     window.addEventListener('keydown', mark, { passive: true });
@@ -195,7 +196,17 @@ export default function App() {
     characterId: active?.id ?? '',
     characterName: active?.name ?? '',
     showHint: (msg, duration) => setSpeech({ text: msg, durationMs: duration }),
-    getLastActivityAt: () => lastActivityAtRef.current,
+    // 问系统要真实的空闲时长(主进程用 Windows GetLastInputInfo 探测)。
+    // 探测失败时返回 -1 → 视为"不可靠" → 放宽 idle 判定,不因为探测失败就永远不说话。
+    getIdleMs: async () => {
+      try {
+        const r = await window.petAPI?.systemIdle?.();
+        if (!r) return -1;
+        return r.reliable ? r.idleMs : -1;
+      } catch {
+        return -1;
+      }
+    },
   });
 
   const handleContextMenu = useCallback(() => {

@@ -45,7 +45,9 @@ JS_RUN = """
 (async () => {
   const out = { ok: false, backend: '', output: '', error: '', elapsedMs: 0, err: null };
   try {
-    out = await window.petAPI.agentRun({ prompt: '只输出三个字:收到了', timeoutSec: 120 });
+    const r = await window.petAPI.agentRun({ prompt: '只输出三个字:收到了', timeoutSec: 120 });
+    out.ok = r.ok; out.backend = r.backend; out.output = r.output;
+    out.error = r.error; out.elapsedMs = r.elapsedMs;
   } catch (e) { out.err = String(e); }
   return JSON.stringify(out);
 })()

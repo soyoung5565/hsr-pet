@@ -553,6 +553,15 @@ const api = {
     return () => ipcRenderer.off('screen:displaysChanged', handler);
   },
 
+  /** 系统级「用户空闲时长」—— 用 Windows GetLastInputInfo 拿真实的最后一次输入时间。
+   *  桌宠窗口是 click-through 的置顶窗,渲染端收不到用户的鼠标键盘事件,
+   *  所以"用户在不在操作"必须由主进程问系统要。 */
+  systemIdle: () =>
+    ipcRenderer.invoke('system:idle') as Promise<{
+      idleMs: number;
+      reliable: boolean;
+    }>,
+
   /** ===== Agent 联动 =====
    * 探测本机可用的 agent CLI(hermes / codex / command-code / claude / opencode),
    * 返回每个是否可用 + 原因。结果不缓存:用户可能刚装完就点。 */
