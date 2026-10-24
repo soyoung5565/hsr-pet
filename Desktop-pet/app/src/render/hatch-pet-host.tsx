@@ -1,5 +1,6 @@
 import {
   forwardRef,
+  useCallback,
   useEffect,
   useImperativeHandle,
   useLayoutEffect,
@@ -29,6 +30,7 @@ import {
 } from '../../shared/pet-physics';
 import type { CharacterHostHandle } from './character-host';
 import type { Emotion } from '../../shared/emotion-map';
+import { roamStep, clampToNearestRect, pickRectAt, type RoamRect } from '../../shared/pet-roam';
 
 /**
  * Hatch-Pet 渲染器 —— OpenAI Codex 的 hatch-pet skill 桌宠包格式。
@@ -451,6 +453,63 @@ export const HatchPetHost = forwardRef<CharacterHostHandle, Props>(function Hatc
     };
   }
 
+  /**
+   * 显示器可用区(相对窗口左上角)—— 多屏漫游用。
+   *
+   * ★ 为什么不直接用 window.innerWidth/innerHeight:
+   *   窗口只铺满主屏(WINDOW_FRAC=1.0,位置固定在主屏原点)。副屏在窗口之外,
+   *   `window.innerWidth` 看不到它。要让桌宠走到副屏,必须从主进程拿真实显示器矩形,
+   *   并且这些矩形是**相对窗口原点**的 —— 副屏的 x 可能是 1920,也可能是负数。
+   *   用 ref 而不是 state:渲染循环里每帧要读,state 会造成闭包过期 / 频繁 re-render。
+   */
+  const roamRectsRef = useRef<RoamRect[]>([]);
+  /** 是否有真实的多屏数据(没拿到之前退回原来的单屏 clamp 行为,保证不会更差) */
+  const roamReadyRef = useRef(false);
+  /** 漫游时是否贴地(从 config.proactive.roamSnapToGround 读,默认开) */
+  const snapToGroundRef = useRef(true);
+
+  /** 拉一次显示器信息。失败/单屏都安全:单屏时退化成原来的行为。 */
+  const refreshRoamRects = useCallback(async () => {
+    try {
+      const rects = await window.petAPI?.screenGetRoamRects?.();
+      if (Array.isArray(rects) && rects.length > 0) {
+        roamRectsRef.current = rects.map((r) => ({ x: r.x, y: r.y, w: r.w, h: r.h }));
+        roamReadyRef.current = true;
+        return;
+      }
+    } catch {
+      // ignore —— 退回单屏行为
+    }
+    roamRectsRef.current = [];
+    roamReadyRef.current = false;
+  }, []);
+
+  useEffect(() => {
+    void refreshRoamRects();
+    // 插拔外接屏 / 改分辨率 / 改任务栏 → 重算区域,否则桌宠会走进不存在的屏幕
+    const off = window.petAPI?.onDisplaysChanged?.(() => void refreshRoamRects());
+    return () => {
+      off?.();
+    };
+  }, [refreshRoamRects]);
+
+  // 读取漫游相关配置(贴地开关)。配置变了要实时生效,不用重启。
+  useEffect(() => {
+    const syncRoamCfg = async () => {
+      try {
+        const cfg = await window.petAPI?.getConfig?.();
+        const pro = cfg?.proactive;
+        // 只有明确写了 false 才关;老配置没有这个字段 → 默认开
+        snapToGroundRef.current = pro?.roamSnapToGround !== false;
+      } catch {
+        snapToGroundRef.current = true;
+      }
+    };
+    void syncRoamCfg();
+    window.addEventListener('petAI:configChanged', syncRoamCfg);
+    return () => window.removeEventListener('petAI:configChanged', syncRoamCfg);
+  }, []);
+
   useEffect(() => {
     visibleRef.current = visible;
   }, [visible]);
@@ -586,7 +645,23 @@ export const HatchPetHost = forwardRef<CharacterHostHandle, Props>(function Hatc
       pendingDx = 0;
       pendingDy = 0;
       const cur = posRef.current;
-      posRef.current = clampModelPos({ x: cur.x + dx, y: cur.y + dy }, scaledFrameSize(scale));
+      const raw = { x: cur.x + dx, y: cur.y + dy };
+      // 有真实显示器数据时:允许在**所有屏**的并集里拖动(含副屏 / 负坐标屏)。
+      // 只用 clampModelPos 会把它锁死在本窗口(主屏)内 —— 用户就永远拖不到副屏。
+      if (roamReadyRef.current && roamRectsRef.current.length > 0) {
+        const insideAny = pickRectAt(roamRectsRef.current, raw.x, raw.y) != null;
+        posRef.current = insideAny
+          ? raw
+          : clampToNearestRect(
+              roamRectsRef.current,
+              raw.x,
+              raw.y,
+              FRAME_W * scale,
+              FRAME_H * scale,
+            );
+      } else {
+        posRef.current = clampModelPos(raw, scaledFrameSize(scale));
+      }
       applyPosToDom();
       saveModelPos(characterIdRef.current, posRef.current);
     };
@@ -768,9 +843,22 @@ export const HatchPetHost = forwardRef<CharacterHostHandle, Props>(function Hatc
         return;
       }
 
+      // 有真实显示器数据时,用「宠物当前所在屏」的边界,而不是窗口边界 ——
+      // 否则被甩到副屏方向时会撞在窗口边缘弹回来,看着像有无形的墙。
+      //
+      // ⚠ 坐标系陷阱(改这里之前务必读):
+      //   throwBounds({W,H}) 生成的是**原点在(0,0)**的边界(minX=0, maxX=W-size)。
+      //   而副屏的 x 可能是 1920 或负数,直接传 r.x+r.w 会导致 minX 固定为 0,
+      //   宠物在副屏上会被拉回左上角。
+      //   正解:传「相对该屏」的宽高,再把物理层算出的局部坐标加上屏原点偏移。
+      const here = roamReadyRef.current
+        ? pickRectAt(roamRectsRef.current, posRef.current.x, posRef.current.y)
+        : null;
+      const originX = here ? here.x : 0;
+      const originY = here ? here.y : 0;
       const bounds: ThrowBounds = throwBounds({
-        W: window.innerWidth,
-        H: window.innerHeight,
+        W: here ? here.w : window.innerWidth,
+        H: here ? here.h : window.innerHeight,
         size: FRAME_W * scale,
         sideAllow: 0,
         // hatch-pet 是 192x208 像素图(12:13),不是 16:9 —— 必须传真实高度,
@@ -790,16 +878,16 @@ export const HatchPetHost = forwardRef<CharacterHostHandle, Props>(function Hatc
       const steps = throwSubsteps(st.vx, st.vy, dt);
       const sub = dt / steps;
       for (let i = 0; i < steps; i++) {
-        // 中心点 → 左上角(物理层语义)
+        // 中心点 → 局部左上角(物理层语义,原点在该屏左上角)
         const r = throwStep(
-          { x: st.x - halfW, y: st.y - halfH, vx: st.vx, vy: st.vy },
+          { x: st.x - halfW - originX, y: st.y - halfH - originY, vx: st.vx, vy: st.vy },
           sub,
           bounds,
           physics,
         );
-        // 左上角 → 中心点(本项目语义)
-        st.x = r.x + halfW;
-        st.y = r.y + halfH;
+        // 局部左上角 → 全局中心点(加回屏原点偏移)
+        st.x = r.x + halfW + originX;
+        st.y = r.y + halfH + originY;
         st.vx = r.vx;
         st.vy = r.vy;
         if (r.bounced) {
@@ -1031,19 +1119,43 @@ export const HatchPetHost = forwardRef<CharacterHostHandle, Props>(function Hatc
         );
         const dx = (dirRef.current * walkSpeedPx(walkSpeed) * dt) / 1000;
         const cur = posRef.current;
-        let nx = cur.x + dx;
-        // 边距随宠物尺寸缩放 —— 放大后不能还按 80px 留白,否则半个身子出屏
-        const margin = edgeMargin();
-        if (nx < margin) {
-          nx = margin;
-          dirRef.current = 1;
-        } else if (nx > window.innerWidth - margin) {
-          nx = window.innerWidth - margin;
-          dirRef.current = -1;
-        }
-        if (nx !== cur.x) {
-          posRef.current = { x: nx, y: cur.y };
-          applyPosToDom();
+
+        // ---- 多屏漫游 ----
+        // 有真实显示器数据时走 roamStep:它负责「当前这块屏的边界 / 跨屏 / 断桥折返 / 掉台阶」。
+        // 没有数据(IPC 还没回来 / 老版本宿主) → 退回原来的单屏 clamp,保证不会更差。
+        const rects = roamRectsRef.current;
+        if (roamReadyRef.current && rects.length > 0) {
+          const step = roamStep(
+            rects,
+            cur,
+            dirRef.current,
+            Math.abs(dx),
+            FRAME_W * scale,
+            FRAME_H * scale,
+          );
+          // ⚠ roamStep 返回的 y 是「贴地后的中心点 y」。只有开了 roamSnapToGround
+          //   才写回 y;否则保留用户拖到的高度,只改 x(有些用户喜欢让宠物悬在半空)。
+          const nextY = snapToGroundRef.current ? step.y : cur.y;
+          if (step.dir !== dirRef.current) dirRef.current = step.dir;
+          if (step.x !== cur.x || nextY !== cur.y) {
+            posRef.current = { x: step.x, y: nextY };
+            applyPosToDom();
+          }
+        } else {
+          let nx = cur.x + dx;
+          // 边距随宠物尺寸缩放 —— 放大后不能还按 80px 留白,否则半个身子出屏
+          const margin = edgeMargin();
+          if (nx < margin) {
+            nx = margin;
+            dirRef.current = 1;
+          } else if (nx > window.innerWidth - margin) {
+            nx = window.innerWidth - margin;
+            dirRef.current = -1;
+          }
+          if (nx !== cur.x) {
+            posRef.current = { x: nx, y: cur.y };
+            applyPosToDom();
+          }
         }
       }
 

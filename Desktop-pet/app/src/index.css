@@ -1208,6 +1208,56 @@ body {
   background: rgba(201, 60, 32, 0.08) !important;
   border-color: rgba(201, 60, 32, 0.5) !important;
 }
+
+/* ===== 记忆元信息行(分类 / 重要度 / 热度) ===== */
+.memory-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 6px 0 4px;
+}
+.memory-cat-select {
+  font-size: 11px;
+  padding: 2px 4px;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  border-radius: 4px;
+  background: #fff;
+  color: #3a3a45;
+  font-family: inherit;
+  cursor: pointer;
+  outline: none;
+}
+.memory-cat-select:focus {
+  border-color: rgba(40, 130, 220, 0.6);
+}
+.memory-imp {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  font-size: 10px;
+  color: rgba(60, 60, 70, 0.55);
+}
+.memory-imp-star {
+  background: none;
+  border: none;
+  padding: 0 1px;
+  font-size: 12px;
+  line-height: 1;
+  color: rgba(0, 0, 0, 0.18);
+  cursor: pointer;
+  transition: color 0.12s;
+}
+.memory-imp-star.on {
+  color: #f0a020;
+}
+.memory-imp-star:hover {
+  color: #f0a020;
+}
+.memory-hits {
+  font-size: 10px;
+  color: rgba(60, 60, 70, 0.45);
+}
 .memory-empty {
   font-size: 12px;
   color: rgba(60, 60, 70, 0.55);

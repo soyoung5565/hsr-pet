@@ -16,11 +16,18 @@ import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
 import zlib from 'node:zlib';
-import { addMemory, removeMemory, listMemories } from './memory-store.js';
+import {
+  addMemory,
+  removeMemory,
+  listMemories,
+  MEMORY_CATEGORIES,
+  type MemoryCategory,
+} from './memory-store.js';
 import { listSkills, getSkill } from './skill-registry.js';
 import { readScreenElements } from './uia-reader.js';
 import { loadConfig } from './config-store.js';
 import { appEvents } from './app-events.js';
+import { probeBackends, runAgent } from './agent-bridge.js';
 
 // ---- prefix ----
 const APP_PREFIX = 'app';
@@ -438,13 +445,29 @@ const TOOLS: BuiltinTool[] = [
       '触发场景:用户说「记住 X」「记一下 X」「我以后都...」「我喜欢 / 不喜欢 X」「我的 X 是 Y」' +
       '等明确想让你长期保留的事情。' +
       '⚠ 一次只写一条简洁陈述句(不超过 80 字),不要把一整段对话扔进来。' +
-      '已存在相同内容的条目则不重复,只刷新时间戳。',
+      '已存在相同内容的条目则不重复,只刷新时间戳。' +
+      '⚠ 只有用户**明确说"记住"**时才调用。不要把你自己推断出来的东西写进长期记忆' +
+      '(比如他只是说了一句客套话,或只是这次任务的临时要求)—— 那些属于当前对话上下文。',
     inputSchema: {
       type: 'object',
       properties: {
         content: {
           type: 'string',
           description: '要记住的事实陈述。简洁、可独立读懂(不依赖上下文)。',
+        },
+        category: {
+          type: 'string',
+          enum: ['preference', 'fact', 'habit', 'event', 'relation', 'instruction', 'other'],
+          description:
+            '分类。preference=偏好(喜欢/不喜欢) | fact=事实(我是/我在/我的生日) | ' +
+            'habit=习惯(每天/总是) | event=事件(上周/昨天) | ' +
+            'relation=人物关系(我姐/我的猫) | instruction=长期指令(以后都要...) | other=其他。' +
+            '不确定就填 other。',
+        },
+        importance: {
+          type: 'number',
+          description:
+            '重要度 1~5。5=必须每次都遵守(如"回答一律用中文"),1=随口一提。默认 3。',
         },
       },
       required: ['content'],
@@ -453,8 +476,20 @@ const TOOLS: BuiltinTool[] = [
     handler: (args) => {
       const content = String(args.content ?? '').trim();
       if (!content) return JSON.stringify({ error: 'content required' });
-      const m = addMemory(content);
-      return JSON.stringify({ ok: true, id: m.id, content: m.content });
+      const catRaw = String(args.category ?? '').trim();
+      const category = (MEMORY_CATEGORIES as string[]).includes(catRaw)
+        ? (catRaw as MemoryCategory)
+        : undefined;
+      const impRaw = Number(args.importance);
+      const importance = Number.isFinite(impRaw) ? impRaw : undefined;
+      const m = addMemory(content, { category, importance });
+      return JSON.stringify({
+        ok: true,
+        id: m.id,
+        content: m.content,
+        category: m.category,
+        importance: m.importance,
+      });
     },
   },
   {
@@ -897,6 +932,108 @@ const TOOLS: BuiltinTool[] = [
       ]);
       if (!text) throw new Error(`目标 model "${model}" 调用失败或返回空`);
       return `[由 ${p.name}/${model} 给出的辅助答复]\n${text}`;
+    },
+  },
+
+  // ---------- 外部 agent CLI 联动 — 把活派给本机的 coding agent ----------
+  {
+    rawName: 'agent_run',
+    description:
+      '把一个**需要实际动手执行**的任务派给本机的外部 coding agent CLI(如 Hermes Agent / Codex / Claude Code)去跑,把结果拿回来。\n' +
+      '适用:用户要求「帮我改这个文件 / 跑一下这个脚本 / 在这个项目里做 XX / 帮我查一下这个仓库」这类需要读代码、执行命令、改文件的活。\n' +
+      '不适用:闲聊、解释概念、单纯问答 —— 那些你自己回答就行,不要调这个(派出去比你自己答慢很多)。\n' +
+      '⚠ 这是有副作用的操作(agent 可能改文件),用户会看到确认弹窗。\n' +
+      '⚠ prompt 必须自包含 —— 目标 agent 看不到你和用户的对话上下文,你要把背景、目标、约束写清楚。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        prompt: {
+          type: 'string',
+          description:
+            '给目标 agent 的完整任务描述。必须自包含:说明要做什么、在哪个目录、有什么约束。不要写「照上面说的做」这类依赖上下文的话。',
+        },
+        reason: {
+          type: 'string',
+          description: '一句话说明为什么要派出去(给用户看,让他判断是否同意)。',
+        },
+        cwd: {
+          type: 'string',
+          description: '可选。agent 的工作目录绝对路径(项目根)。留空 = 用户设置里的默认目录或 home。',
+        },
+        timeout_sec: {
+          type: 'number',
+          description: '可选。超时秒数,默认用设置里的值(通常 300)。长任务可调大,最大 3600。',
+        },
+      },
+      required: ['prompt'],
+    },
+    mutating: true, // 有副作用 → 走用户确认
+    handler: async (args) => {
+      const cfg = loadConfig();
+      const bridge = cfg.agentBridge;
+      if (bridge && bridge.enabled === false) {
+        throw new Error('Agent 联动已在设置里关闭,无法派任务。到 设置 → Agent 联动 打开。');
+      }
+      const prompt = String(args.prompt ?? '').trim();
+      if (!prompt) throw new Error('prompt 不能为空');
+
+      const r = await runAgent({
+        prompt,
+        cwd: typeof args.cwd === 'string' ? args.cwd : bridge?.workDir,
+        timeoutSec:
+          typeof args.timeout_sec === 'number'
+            ? Math.max(10, Math.min(3600, Math.round(args.timeout_sec)))
+            : bridge?.timeoutSec,
+        preferId: bridge?.backendId && bridge.backendId !== 'auto' ? bridge.backendId : undefined,
+      });
+
+      if (!r.ok) {
+        // 把失败原因原样交给 AI,让它据此向用户解释(而不是编一个"我做完了")
+        const backendLabel = r.backend || 'agent';
+        const probe = probeBackends()
+          .map((b) => `  · ${b.label}: ${b.available ? '可用' : b.reason}`)
+          .join('\n');
+        throw new Error(
+          `派任务给 ${backendLabel} 失败:${r.error ?? '未知原因'}\n` +
+            (r.output ? `\n它的输出(可能含线索):\n${r.output.slice(0, 1500)}\n` : '') +
+            `\n本机 agent 探测结果:\n${probe}\n` +
+            '请如实告诉用户失败原因,不要假装成功。',
+        );
+      }
+
+      const secs = (r.elapsedMs / 1000).toFixed(1);
+      // 输出可能很长,截断但保留尾部(结论通常在最后)
+      const MAX = 6000;
+      const out =
+        r.output.length <= MAX
+          ? r.output
+          : `${r.output.slice(0, 1200)}\n\n...（中间省略 ${r.output.length - MAX} 字）...\n\n${r.output.slice(-4800)}`;
+      return `[由本机 ${r.backend} 执行完成,耗时 ${secs}s]\n\n${out}`;
+    },
+  },
+
+  // ---------- 查询本机有哪些 agent 可用(只读) ----------
+  {
+    rawName: 'agent_probe',
+    description:
+      '查询本机装了哪些外部 coding agent CLI(Hermes / Codex / Claude Code / Command Code / OpenCode)、各自是否可用及原因。\n' +
+      '只读。在你不确定能不能派活、或用户问「你还能叫谁干活」时调它。',
+    inputSchema: { type: 'object', properties: {} },
+    mutating: false,
+    handler: () => {
+      const list = probeBackends();
+      const lines = list.map(
+        (b) => `- ${b.label} (${b.id}): ${b.available ? '✅ 可用' : '❌ 不可用'} — ${b.reason}`,
+      );
+      const usable = list.filter((b) => b.available).map((b) => b.label);
+      return [
+        '本机 agent CLI 探测结果:',
+        ...lines,
+        '',
+        usable.length > 0
+          ? `可以直接用的是:${usable.join('、')}。`
+          : '⚠ 当前没有任何可用的 agent CLI,无法派活。需要用户先安装并登录一个(如 `npm i -g @openai/codex` 后 `codex login`)。',
+      ].join('\n');
     },
   },
 

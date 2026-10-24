@@ -9,6 +9,7 @@ import { streamChat, type ChatMessage } from './ai-client.js';
 import { mcpManager, type McpToolDesc } from './mcp-client.js';
 import { proactiveAware } from './proactive-aware.js';
 import { appEvents } from './app-events.js';
+import { probeBackends, runAgent, type AgentRunResult } from './agent-bridge.js';
 import {
   loadCachedSkillsIndex,
   syncSkillsIndex,
@@ -24,7 +25,14 @@ import {
   updateMemory,
   removeMemory,
   clearMemories,
+  type MemoryCategory,
 } from './memory-store.js';
+
+/** 记忆的可选元数据(分类 / 重要度)。从渲染端传进来,需要校验。 */
+interface MemoryOpts {
+  category?: MemoryCategory;
+  importance?: number;
+}
 // 必须在 app.whenReady 之前注册自定义协议特权,否则 fetch / CORS / CSP 无法通过。
 protocol.registerSchemesAsPrivileged([
   {
@@ -780,13 +788,13 @@ ipcMain.handle('hatchPet:remove', async (_e, characterId: string) => {
 // ===== 长期记忆管理(给「设置 → 编辑记忆」UI 用)=====
 // memory 存在 userData/memory.json,跨模型跨会话,每次 streamChat 会注入 system prompt。
 ipcMain.handle('memory:list', () => listMemories());
-ipcMain.handle('memory:add', (_e, content: string) => {
+ipcMain.handle('memory:add', (_e, content: string, opts?: MemoryOpts) => {
   if (typeof content !== 'string') throw new Error('content must be string');
-  return addMemory(content);
+  return addMemory(content, opts);
 });
-ipcMain.handle('memory:update', (_e, id: string, content: string) => {
+ipcMain.handle('memory:update', (_e, id: string, content: string, opts?: MemoryOpts) => {
   if (typeof id !== 'string' || typeof content !== 'string') return false;
-  return updateMemory(id, content);
+  return updateMemory(id, content, opts);
 });
 ipcMain.handle('memory:remove', (_e, idOrMatch: string) => {
   if (typeof idOrMatch !== 'string') return 0;
@@ -817,6 +825,98 @@ ipcMain.handle('vosk:removeCustomModel', () => {
 ipcMain.handle('assets:scan', async () => {
   return scanAll();
 });
+
+// IPC: 查询所有显示器的工作区(多屏漫游用)。
+//
+// 返回给渲染端的是**相对窗口左上角**的 CSS 像素矩形,渲染端可直接拿去和
+// window.innerWidth/innerHeight 同一坐标系比较。
+//
+// 关键点:
+//   1. workArea 而不是 bounds —— 要扣掉任务栏,否则宠物会走到任务栏下面被遮住。
+//   2. 用 DIP(css 像素)语义:Electron 的 screen.*.workArea 本身就是 DIP,
+//      与渲染端 CSS 像素一致,不需要按 scaleFactor 再乘一遍。
+//   3. 窗口当前铺满主屏(WINDOW_FRAC=1.0),且位置固定不跟随宠物移动,
+//      所以「窗口原点」是稳定的基准。用 getBounds() 实时读,避免窗口被外移后算错。
+//   4. 高 DPI 混合缩放(主屏 150% + 副屏 100%)时 workArea.width 是 DIP 宽度,
+//      跨屏坐标也由 Electron 换算好,可直接拼接使用。
+ipcMain.handle('screen:getRoamRects', () => {
+  const displays = screen.getAllDisplays();
+  // 窗口原点(相对虚拟桌面)
+  const [wx, wy] = mainWindow ? mainWindow.getPosition() : [0, 0];
+  return displays.map((d) => {
+    const wa = d.workArea;
+    return {
+      id: d.id,
+      // 相对窗口左上角
+      x: wa.x - wx,
+      y: wa.y - wy,
+      w: wa.width,
+      h: wa.height,
+      // 附带绝对坐标,便于日志排查 / 未来窗口真正跨屏时使用
+      absX: wa.x,
+      absY: wa.y,
+      scaleFactor: d.scaleFactor,
+      primary: d.id === screen.getPrimaryDisplay().id,
+    };
+  });
+});
+
+// IPC: 监听显示器变化(插拔外接屏 / 改分辨率 / 改缩放 / 任务栏位置)
+// 主进程侧注册,渲染端订阅 —— 变化后必须重算漫游区域,否则桌宠会走进不存在的屏幕。
+function emitDisplaysChanged(): void {
+  notifyRenderer('screen:displaysChanged');
+}
+// ⚠ 注册必须在 app ready 之后 —— `screen` 模块在 app 'ready' 事件前访问会直接抛
+//   "The 'screen' module can't be used before the app 'ready' event",
+//   那会让整个 main 进程加载失败、桌宠根本起不来。
+//   所以注册动作放在 app.whenReady() 回调里(见下方),这里只留函数定义。
+
+// IPC: Agent 联动 —— 探测本机可用 agent CLI
+// 每次都重新探测(用户可能刚装完/刚登录),不做缓存:静态检查成本极低。
+ipcMain.handle('agent:probe', () => {
+  const cfg = loadConfig();
+  return {
+    backends: probeBackends(),
+    configured: cfg.agentBridge?.backendId ?? 'auto',
+  };
+});
+
+// IPC: Agent 联动 —— 跑一次任务
+// 逐行把日志推回渲染端('agent:log'),渲染端可实时显示在对话面板里。
+ipcMain.handle(
+  'agent:run',
+  async (
+    _e,
+    payload: { prompt: string; cwd?: string; timeoutSec?: number },
+  ): Promise<AgentRunResult> => {
+    const cfg = loadConfig();
+    const bridge = cfg.agentBridge;
+    if (bridge && bridge.enabled === false) {
+      return {
+        ok: false,
+        backend: '',
+        output: '',
+        error: 'Agent 联动已在设置里关闭。到 设置 → Agent 联动 打开。',
+        elapsedMs: 0,
+      };
+    }
+    const res = await runAgent({
+      prompt: payload?.prompt ?? '',
+      cwd: payload?.cwd,
+      timeoutSec: payload?.timeoutSec,
+      // 'auto' = 按优先级自动挑第一个可用的
+      preferId: bridge?.backendId && bridge.backendId !== 'auto' ? bridge.backendId : undefined,
+      onLine: (line) => notifyRenderer('agent:log', { line }),
+    });
+    return {
+      ok: res.ok,
+      backend: res.backend,
+      output: res.output,
+      error: res.error,
+      elapsedMs: res.elapsedMs,
+    };
+  },
+);
 
 // IPC: 窗口位置增量移动(渲染端 mousemove 时调用)
 //   dx,dy 是相对当前位置的整数像素偏移。
@@ -1157,6 +1257,12 @@ app.whenReady().then(() => {
   registerPetProtocol();
   createWindow();
   createTray();
+
+  // 显示器变化监听 —— 必须在 app ready 之后注册(`screen` 模块在 ready 前不可用,
+  // 放在模块顶层会让 main 进程直接加载失败)。
+  screen.on('display-added', emitDisplaysChanged);
+  screen.on('display-removed', emitDisplaysChanged);
+  screen.on('display-metrics-changed', emitDisplaysChanged);
   // 主动互动后台监听 — 仅当 config.proactive.enabled=true 时实际跑;否则 noop
   if (mainWindow) proactiveAware.attach(mainWindow);
   proactiveAware.start();

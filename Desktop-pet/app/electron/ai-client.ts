@@ -1,7 +1,7 @@
 import { net, BrowserWindow, ipcMain } from 'electron';
 import { loadConfig, getActiveSystemPrompt, getProactiveConfig, type AppConfig } from './config-store.js';
 import { mcpManager } from './mcp-client.js';
-import { formatMemoriesForPrompt } from './memory-store.js';
+import { formatMemoriesForPromptV2 } from './memory-store.js';
 import { listSkills } from './skill-registry.js';
 import {
   newThinkState,
@@ -1145,7 +1145,18 @@ async function streamChatInner(
   if (memBlock) sysParts.push(`[长期记忆 — 关于用户的习惯 / 偏好 / 上下文,需要时参考]\n${memBlock}`);
   // AI 自己通过 app__remember / app__forget 维护的动态记忆 — 文件存在用户级目录,
   // 跨会话、跨模型一致。每次对话注入,确保任何模型/会话都能看到。
-  const dynamicMem = formatMemoriesForPrompt();
+  //
+  // ★ v2:按**本轮用户输入**做相关性检索,只注入最相关的若干条。
+  //   原因:记忆条数一多,全量注入会撑爆 system prompt,还让无关记忆干扰注意力。
+  //   「长期指令」类(category='instruction')无条件保留 —— 那是用户明确要求
+  //   "每次都这样"的东西,不能因为这次没提到就丢掉。
+  const userQueryForMemory = [...messages]
+    .reverse()
+    .find((m) => m.role === 'user')
+    ?.content ?? '';
+  const dynamicMem = formatMemoriesForPromptV2(
+    typeof userQueryForMemory === 'string' ? userQueryForMemory : '',
+  );
   if (dynamicMem) sysParts.push(dynamicMem);
 
   // 只有 mcp.enabled 才带 tools(builtin 永远在,server 看用户配置)

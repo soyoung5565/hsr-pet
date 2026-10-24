@@ -6,6 +6,7 @@ import { PetMenu } from './ui/pet-menu';
 import { ChatBubble } from './ui/chat-bubble';
 import { PetSpeechBubble } from './ui/pet-speech-bubble';
 import { useProactiveGreetings } from './render/use-proactive-greetings';
+import { usePetChatter } from './render/use-pet-chatter';
 import { ClipboardSuggestionLayer } from './ui/clipboard-suggestion';
 import type { VoskState } from './render/vosk-shared';
 
@@ -54,6 +55,31 @@ export default function App() {
   const [speech, setSpeech] = useState<{ text: string; durationMs: number } | null>(null);
   /** 当前角色名(ref 传给主动搭话 hook —— hook 必须在顶层调,而 active 在后面才算出) */
   const activeNameRef = useRef<string>('');
+
+  /**
+   * 全局「用户最后一次活动」时间戳。
+   *
+   * 为什么放在 App 层而不是各 hook 里各记一份:
+   *   多个 hook(主动搭话 / 碎碎念)都要判「主人闲了多久」,
+   *   各记一份会因为挂载时机不同而互相不一致(比如碎碎念晚挂 2 秒,
+   *   就把那 2 秒算成"用户没动过")。统一一份 ref,谁读都是同一个数。
+   */
+  const lastActivityAtRef = useRef<number>(Date.now());
+  useEffect(() => {
+    const mark = () => {
+      lastActivityAtRef.current = Date.now();
+    };
+    window.addEventListener('mousemove', mark, { passive: true });
+    window.addEventListener('keydown', mark, { passive: true });
+    window.addEventListener('mousedown', mark, { passive: true });
+    window.addEventListener('wheel', mark, { passive: true });
+    return () => {
+      window.removeEventListener('mousemove', mark);
+      window.removeEventListener('keydown', mark);
+      window.removeEventListener('mousedown', mark);
+      window.removeEventListener('wheel', mark);
+    };
+  }, []);
 
   // 角色切换 → 同步该角色的渲染风格(每个角色各存各的)。
   // ⚠ 不能直接问 hostRef:activeId 变化时新 host 还没挂载,
@@ -158,6 +184,18 @@ export default function App() {
     characterId: active?.id ?? '',
     characterName: active?.name ?? '',
     showHint: (msg, duration) => setSpeech({ text: msg, durationMs: duration }),
+  });
+
+  // ---- 碎碎念(自言自语)----
+  // 与上面的「主动搭话」是两套东西:
+  //   主动搭话 = 有事由(整点/节日/切应用/久坐),每件事每天一次,对用户说;
+  //   碎碎念   = 没事由,纯因为闲,随机间隔,像在旁边小声嘀咕。
+  // 两者共用同一个气泡通道(showHint),所以同一时刻只会有一条气泡。
+  usePetChatter({
+    characterId: active?.id ?? '',
+    characterName: active?.name ?? '',
+    showHint: (msg, duration) => setSpeech({ text: msg, durationMs: duration }),
+    getLastActivityAt: () => lastActivityAtRef.current,
   });
 
   const handleContextMenu = useCallback(() => {

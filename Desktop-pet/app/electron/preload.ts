@@ -52,6 +52,8 @@ export interface AIConfig {
   visionAssist?: VisionAssistConfig;
   /** 通用模型辅助 — AI 干不动某项任务时,可主动调用其他 model 帮忙(经用户确认) */
   generalAssist?: GeneralAssistConfig;
+  /** 外部 agent CLI 联动(hermes / codex / claude 等) */
+  agentBridge?: AgentBridgeConfig;
 }
 
 /** 视觉辅助配置(对应 electron/config-store.ts VisionAssistConfig) */
@@ -92,6 +94,21 @@ export interface ProactiveConfig {
   idleStayMinutes: number;
   autoReadScreen: boolean;
   autoReadBrowser: boolean;
+  /** 碎碎念总开关 */
+  chatterEnabled: boolean;
+  /** 碎碎念最短间隔(分钟) */
+  chatterMinMinutes: number;
+  /** 碎碎念最长间隔(分钟) */
+  chatterMaxMinutes: number;
+  /** 碎碎念活跃时段(24h) */
+  chatterStartHour: number;
+  chatterEndHour: number;
+  /** 只在用户无操作时碎碎念 */
+  chatterOnlyWhenIdle: boolean;
+  /** 允许多屏漫游 */
+  roamMultiScreen: boolean;
+  /** 漫游时贴地 */
+  roamSnapToGround: boolean;
 }
 
 /** 一个外部 skill 仓库源 */
@@ -428,18 +445,34 @@ const api = {
   /** 长期记忆 — 列出所有条目(按 createdAt 正序)*/
   memoryList: () =>
     ipcRenderer.invoke('memory:list') as Promise<
-      Array<{ id: string; content: string; createdAt: number }>
+      Array<{
+        id: string;
+        content: string;
+        createdAt: number;
+        /** 分类(preference/fact/habit/event/relation/instruction/other) */
+        category: string;
+        /** 重要度 1~5 */
+        importance: number;
+        /** 被注入 system prompt 的次数 */
+        hits: number;
+        /** 最后一次被注入的时间;0 = 从没 */
+        lastUsedAt: number;
+        updatedAt: number;
+      }>
     >,
   /** 长期记忆 — 新增(重复 content 会刷新 createdAt,返回同一条)*/
-  memoryAdd: (content: string) =>
-    ipcRenderer.invoke('memory:add', content) as Promise<{
+  memoryAdd: (content: string, opts?: { category?: string; importance?: number }) =>
+    ipcRenderer.invoke('memory:add', content, opts) as Promise<{
       id: string;
       content: string;
       createdAt: number;
     }>,
   /** 长期记忆 — 按 id 编辑内容。成功返回 true,id 不存在返回 false */
-  memoryUpdate: (id: string, content: string) =>
-    ipcRenderer.invoke('memory:update', id, content) as Promise<boolean>,
+  memoryUpdate: (
+    id: string,
+    content: string,
+    opts?: { category?: string; importance?: number },
+  ) => ipcRenderer.invoke('memory:update', id, content, opts) as Promise<boolean>,
   /** 长期记忆 — 按 id 或 content 子串删除,返回删除数量 */
   memoryRemove: (idOrMatch: string) =>
     ipcRenderer.invoke('memory:remove', idOrMatch) as Promise<number>,
@@ -508,7 +541,94 @@ const api = {
     ipcRenderer.on('mcp:tool-event', handler);
     return () => ipcRenderer.off('mcp:tool-event', handler);
   },
+
+  /** 查询所有显示器的工作区矩形(多屏漫游用)。
+   *  坐标已换算成**相对窗口左上角**的 CSS 像素,可和 window.innerWidth 直接比较。 */
+  screenGetRoamRects: () => ipcRenderer.invoke('screen:getRoamRects') as Promise<RoamRectInfo[]>,
+
+  /** 订阅显示器变化(插拔外接屏 / 改分辨率 / 改缩放 / 任务栏移动)。 */
+  onDisplaysChanged: (cb: () => void) => {
+    const handler = () => cb();
+    ipcRenderer.on('screen:displaysChanged', handler);
+    return () => ipcRenderer.off('screen:displaysChanged', handler);
+  },
+
+  /** ===== Agent 联动 =====
+   * 探测本机可用的 agent CLI(hermes / codex / command-code / claude / opencode),
+   * 返回每个是否可用 + 原因。结果不缓存:用户可能刚装完就点。 */
+  agentProbe: () => ipcRenderer.invoke('agent:probe') as Promise<AgentProbeResult>,
+
+  /** 派任务给外部 agent CLI 跑一次(非交互),返回它的最终输出。
+   *  长任务会持续推 agent:log 事件,调用方可订阅 onAgentLog 展示实时进度。 */
+  agentRun: (payload: { prompt: string; cwd?: string; timeoutSec?: number }) =>
+    ipcRenderer.invoke('agent:run', payload) as Promise<AgentRunResult>,
+
+  /** 订阅 agent 运行日志(逐行)。 */
+  onAgentLog: (cb: (payload: { line: string }) => void) => {
+    const handler = (_e: unknown, p: { line: string }) => cb(p);
+    ipcRenderer.on('agent:log', handler);
+    return () => ipcRenderer.off('agent:log', handler);
+  },
 };
+
+/** 显示器工作区(相对窗口左上角) */
+export interface RoamRectInfo {
+  id: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  absX: number;
+  absY: number;
+  scaleFactor: number;
+  primary: boolean;
+}
+
+/** 单个 agent CLI 的探测结果 */
+export interface AgentBackendInfo {
+  /** 后端 id: 'hermes' | 'codex' | 'command-code' | 'claude' | 'opencode' */
+  id: string;
+  /** 显示名 */
+  label: string;
+  /** 是否可立即使用 */
+  available: boolean;
+  /** 命中原因 / 不可用原因(给用户看) */
+  reason: string;
+  /** 实际解析到的可执行文件路径(可用时) */
+  binPath?: string;
+}
+
+export interface AgentProbeResult {
+  backends: AgentBackendInfo[];
+  /** 当前配置里选中的后端 id(可能不可用) */
+  configured: string;
+}
+
+export interface AgentRunResult {
+  ok: boolean;
+  /** 使用的后端 id */
+  backend: string;
+  /** 成功时的输出(已裁掉 CLI 的横幅/噪声) */
+  output: string;
+  /** 失败原因 */
+  error?: string;
+  /** 实际耗时(ms) */
+  elapsedMs: number;
+}
+
+/** 外部 agent CLI 联动配置 */
+export interface AgentBridgeConfig {
+  /** 总开关 */
+  enabled: boolean;
+  /** 指定后端 id;'auto' = 按优先级自动挑第一个可用的 */
+  backendId: string;
+  /** 单次任务超时(秒) */
+  timeoutSec: number;
+  /** 默认工作目录;空 = 用户 home */
+  workDir?: string;
+  /** 派活前是否要用户确认 */
+  confirmBeforeRun: boolean;
+}
 
 try {
   contextBridge.exposeInMainWorld('petAPI', api);

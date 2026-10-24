@@ -13,11 +13,14 @@ import type { Live2DCharacter, HatchPetCharacter } from '../../shared/character'
  *  Live2D 与 Hatch-Pet 都参与角色切换 + AI persona 配置;sprite 还没启用故不并入。 */
 type MenuCharacter = Live2DCharacter | HatchPetCharacter;
 import type {
+  AgentBackendInfo,
+  AgentBridgeConfig,
   CharacterPersonaEntry,
   CharacterPersonaSlot,
   DownloadedSkillMeta,
   GeneralAssistConfig,
   McpServerSpec,
+  ProactiveConfig,
   ProviderProfile,
   RuntimeCacheUsage,
   VisionAssistConfig,
@@ -567,7 +570,31 @@ interface SkillData {
  *   - 这里用户手动添加(偏好 / 关键事实)
  *  记忆每次 streamChat 注入 system prompt,所有模型 / 会话都能"记得"。
  *  存储位置 userData/memory.json,与 cfg 解耦,单独走 ipcMain 'memory:*' 通道。 */
-type MemoryItem = { id: string; content: string; createdAt: number };
+type MemoryItem = {
+  id: string;
+  content: string;
+  createdAt: number;
+  /** 分类(preference/fact/habit/event/relation/instruction/other) */
+  category: string;
+  /** 重要度 1~5 */
+  importance: number;
+  /** 被注入 system prompt 的次数 */
+  hits: number;
+  /** 最后一次被注入的时间;0 = 从没 */
+  lastUsedAt: number;
+  updatedAt: number;
+};
+
+/** 记忆分类的显示名 + 快捷选择顺序(与 shared/memory-retrieval.ts 保持一致)。 */
+const MEMORY_CATEGORY_OPTIONS: Array<{ id: string; label: string }> = [
+  { id: 'preference', label: '偏好' },
+  { id: 'fact', label: '事实' },
+  { id: 'habit', label: '习惯' },
+  { id: 'event', label: '事件' },
+  { id: 'relation', label: '人物/关系' },
+  { id: 'instruction', label: '长期指令' },
+  { id: 'other', label: '其他' },
+];
 function MemorySection(): JSX.Element {
   const [list, setList] = useState<MemoryItem[]>([]);
   const [filter, setFilter] = useState('');
@@ -727,6 +754,59 @@ function MemorySection(): JSX.Element {
             ) : (
               <>
                 <div className="memory-content">{m.content}</div>
+                <div className="memory-meta-row">
+                  {/* 分类标签 —— 点一下就能换分类 */}
+                  <select
+                    className="memory-cat-select"
+                    value={m.category ?? 'other'}
+                    title="分类:决定这条记忆什么时候该被想起来"
+                    onChange={(e) => {
+                      void window.petAPI?.memoryUpdate?.(m.id, m.content, {
+                        category: e.target.value,
+                      });
+                      void refresh();
+                    }}
+                  >
+                    {MEMORY_CATEGORY_OPTIONS.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.label}
+                      </option>
+                    ))}
+                  </select>
+                  {/* 重要度 1~5 */}
+                  <span className="memory-imp" title="重要度:越高越容易被优先注入 AI 上下文">
+                    重要度
+                    {Array.from({ length: 5 }, (_, i) => (
+                      <button
+                        key={i}
+                        className={
+                          'memory-imp-star' + (i < (m.importance ?? 3) ? ' on' : '')
+                        }
+                        onClick={() => {
+                          const v = i + 1;
+                          void window.petAPI?.memoryUpdate?.(m.id, m.content, {
+                            importance: v,
+                          });
+                          void refresh();
+                        }}
+                        title={`设为 ${i + 1}`}
+                      >
+                        ★
+                      </button>
+                    ))}
+                  </span>
+                  {/* 热度 —— 被注入过几次 */}
+                  <span
+                    className="memory-hits"
+                    title={
+                      m.hits > 0
+                        ? `已被引用 ${m.hits} 次,最近一次 ${fmtDate(m.lastUsedAt)}`
+                        : '还没被用到过'
+                    }
+                  >
+                    用过 {m.hits} 次
+                  </span>
+                </div>
                 <div className="memory-card-actions">
                   <span className="memory-date">{fmtDate(m.createdAt)}</span>
                   <button
@@ -2414,6 +2494,25 @@ function SettingsPanel({
   const [proIdleStayMin, setProIdleStayMin] = useState(20);
   const [proAutoReadScreen, setProAutoReadScreen] = useState(false);
   const [proAutoReadBrowser, setProAutoReadBrowser] = useState(false);
+  // 碎碎念(自言自语)
+  const [chatterEnabled, setChatterEnabled] = useState(false);
+  const [chatterMin, setChatterMin] = useState(8);
+  const [chatterMax, setChatterMax] = useState(25);
+  const [chatterStartHour, setChatterStartHour] = useState(9);
+  const [chatterEndHour, setChatterEndHour] = useState(23);
+  const [chatterOnlyWhenIdle, setChatterOnlyWhenIdle] = useState(true);
+  // 多屏漫游
+  const [roamMultiScreen, setRoamMultiScreen] = useState(true);
+  const [roamSnapToGround, setRoamSnapToGround] = useState(true);
+  // 外部 agent CLI 联动
+  const [agentBridge, setAgentBridge] = useState<AgentBridgeConfig>({
+    enabled: true,
+    backendId: 'auto',
+    timeoutSec: 300,
+    confirmBeforeRun: true,
+  });
+  const [agentBackends, setAgentBackends] = useState<AgentBackendInfo[]>([]);
+  const [agentProbing, setAgentProbing] = useState(false);
   // ----- 对话框语音输入 state -----
   const [voiceInput, setVoiceInput] = useState(false);
   // ----- MCP state(AI 工具)-----
@@ -2501,6 +2600,26 @@ function SettingsPanel({
       setProIdleStayMin(typeof pro?.idleStayMinutes === 'number' ? pro.idleStayMinutes : 20);
       setProAutoReadScreen(!!pro?.autoReadScreen);
       setProAutoReadBrowser(!!pro?.autoReadBrowser);
+      // 碎碎念 / 漫游
+      setChatterEnabled(!!pro?.chatterEnabled);
+      setChatterMin(typeof pro?.chatterMinMinutes === 'number' ? pro.chatterMinMinutes : 8);
+      setChatterMax(typeof pro?.chatterMaxMinutes === 'number' ? pro.chatterMaxMinutes : 25);
+      setChatterStartHour(typeof pro?.chatterStartHour === 'number' ? pro.chatterStartHour : 9);
+      setChatterEndHour(typeof pro?.chatterEndHour === 'number' ? pro.chatterEndHour : 23);
+      setChatterOnlyWhenIdle(pro?.chatterOnlyWhenIdle !== false);
+      setRoamMultiScreen(pro?.roamMultiScreen !== false);
+      setRoamSnapToGround(pro?.roamSnapToGround !== false);
+      // agent 联动
+      const ab = cfg.agentBridge;
+      if (ab) {
+        setAgentBridge({
+          enabled: ab.enabled !== false,
+          backendId: ab.backendId || 'auto',
+          timeoutSec: typeof ab.timeoutSec === 'number' ? ab.timeoutSec : 300,
+          workDir: ab.workDir,
+          confirmBeforeRun: ab.confirmBeforeRun !== false,
+        });
+      }
       const vw = cfg.voiceWake;
       setVoiceInput(!!vw?.voiceInput);
       // MCP 配置读入
@@ -2631,18 +2750,14 @@ function SettingsPanel({
   };
 
   /** 主动互动配置 — 持久化到 cfg.proactive。任何字段变了写整段(主进程拿到自动 refresh 后台轮询) */
-  const persistProactive = async (
-    patch: Partial<{
-      enabled: boolean;
-      interactOnSwitch: boolean;
-      awareApps: boolean;
-      awareLongStay: boolean;
-      idleStayMinutes: number;
-      autoReadScreen: boolean;
-      autoReadBrowser: boolean;
-    }>,
-  ) => {
-    const next = {
+  const persistProactive = async (patch: Partial<ProactiveConfig>) => {
+    // ★ 先读盘上的现有值,再合并本组件管的 state —— 不能只用组件 state 重建整个对象。
+    //   原因:本组件只覆盖一部分字段(碎碎念/漫游等新字段可能由别处写入),
+    //   若用 state 全量重建,会把用户刚在别处改的字段抹回默认值。
+    const cfg = await window.petAPI?.getConfig?.();
+    if (!cfg) return;
+    const next: ProactiveConfig = {
+      ...(cfg.proactive ?? ({} as ProactiveConfig)),
       enabled: patch.enabled ?? proEnabled,
       interactOnSwitch: patch.interactOnSwitch ?? proInteractOnSwitch,
       awareApps: patch.awareApps ?? proAwareApps,
@@ -2650,12 +2765,71 @@ function SettingsPanel({
       idleStayMinutes: patch.idleStayMinutes ?? proIdleStayMin,
       autoReadScreen: patch.autoReadScreen ?? proAutoReadScreen,
       autoReadBrowser: patch.autoReadBrowser ?? proAutoReadBrowser,
+      // 碎碎念 / 漫游:patch 里有就用 patch,否则保留盘上的值
+      ...(patch.chatterEnabled !== undefined ? { chatterEnabled: patch.chatterEnabled } : {}),
+      ...(patch.chatterMinMinutes !== undefined
+        ? { chatterMinMinutes: patch.chatterMinMinutes }
+        : {}),
+      ...(patch.chatterMaxMinutes !== undefined
+        ? { chatterMaxMinutes: patch.chatterMaxMinutes }
+        : {}),
+      ...(patch.chatterStartHour !== undefined
+        ? { chatterStartHour: patch.chatterStartHour }
+        : {}),
+      ...(patch.chatterEndHour !== undefined ? { chatterEndHour: patch.chatterEndHour } : {}),
+      ...(patch.chatterOnlyWhenIdle !== undefined
+        ? { chatterOnlyWhenIdle: patch.chatterOnlyWhenIdle }
+        : {}),
+      ...(patch.roamMultiScreen !== undefined ? { roamMultiScreen: patch.roamMultiScreen } : {}),
+      ...(patch.roamSnapToGround !== undefined
+        ? { roamSnapToGround: patch.roamSnapToGround }
+        : {}),
     };
-    const cfg = await window.petAPI?.getConfig?.();
-    if (!cfg) return;
     await window.petAPI?.setConfig?.({ ...cfg, proactive: next });
     window.dispatchEvent(new CustomEvent('petAI:configChanged'));
   };
+
+  /** 碎碎念 / 漫游配置 — 独立持久化(它们和「主动互动」总开关是两回事:
+   *  碎碎念可以在主动互动关闭时单独开着,反之亦然)。 */
+  const persistProExtra = async (patch: Partial<ProactiveConfig>) => {
+    const cfg = await window.petAPI?.getConfig?.();
+    if (!cfg) return;
+    const next: ProactiveConfig = {
+      ...(cfg.proactive ?? ({} as ProactiveConfig)),
+      ...patch,
+    };
+    await window.petAPI?.setConfig?.({ ...cfg, proactive: next });
+    window.dispatchEvent(new CustomEvent('petAI:configChanged'));
+  };
+
+  /** agent 联动配置持久化 */
+  const persistAgentBridge = async (patch: Partial<AgentBridgeConfig>) => {
+    const cfg = await window.petAPI?.getConfig?.();
+    if (!cfg) return;
+    const next: AgentBridgeConfig = { ...agentBridge, ...patch };
+    setAgentBridge(next);
+    await window.petAPI?.setConfig?.({ ...cfg, agentBridge: next });
+    window.dispatchEvent(new CustomEvent('petAI:configChanged'));
+  };
+
+  /** 探测本机可用的 agent CLI。
+   *  注意返回形状:{ backends: AgentBackendInfo[], configured: string } —— 不是裸数组。 */
+  const probeAgents = async () => {
+    setAgentProbing(true);
+    try {
+      const res = await window.petAPI?.agentProbe?.();
+      if (res && Array.isArray(res.backends)) setAgentBackends(res.backends);
+    } catch {
+      // 探测失败保持原样
+    } finally {
+      setAgentProbing(false);
+    }
+  };
+
+  // 打开设置面板时探一次(用户最关心"哪个能用")
+  useEffect(() => {
+    void probeAgents();
+  }, []);
 
   const updateVoiceInput = async (next: boolean) => {
     setVoiceInput(next);
@@ -3102,6 +3276,294 @@ function SettingsPanel({
               }}
             />
           </label>
+        </div>
+
+        {/* ===== 碎碎念(自言自语)=====
+              和上面的「主动互动」是**两套独立开关**:
+              主动互动 = 有事由才说(整点/节日/切应用),每件事每天一次;
+              碎碎念 = 没事由,纯因为闲,随机间隔,像在旁边小声嘀咕。 */}
+        <div className="settings-section">
+          <div className="settings-section-title">碎碎念</div>
+
+          <label className="settings-row">
+            <div className="settings-row-text">
+              <span className="settings-row-name">允许碎碎念</span>
+              <span className="settings-row-desc">
+                没人理它的时候,角色会自己嘀咕一句(自言自语)。
+                不会提问、不会催你做事 —— 听到了不理也没关系。
+              </span>
+            </div>
+            <input
+              type="checkbox"
+              className="settings-toggle"
+              checked={chatterEnabled}
+              onChange={(e) => {
+                setChatterEnabled(e.target.checked);
+                void persistProExtra({ chatterEnabled: e.target.checked });
+              }}
+            />
+          </label>
+
+          <label
+            className="settings-row"
+            style={{ opacity: chatterEnabled && chatterOnlyWhenIdle ? 1 : 0.45 }}
+          >
+            <div className="settings-row-text">
+              <span className="settings-row-name">只在你没操作时碎碎念</span>
+              <span className="settings-row-desc">
+                开着这个,只要你还在动鼠标/敲键盘,它就闭嘴(不打断你)。
+              </span>
+            </div>
+            <input
+              type="checkbox"
+              className="settings-toggle"
+              checked={chatterOnlyWhenIdle}
+              disabled={!chatterEnabled}
+              onChange={(e) => {
+                setChatterOnlyWhenIdle(e.target.checked);
+                void persistProExtra({ chatterOnlyWhenIdle: e.target.checked });
+              }}
+            />
+          </label>
+
+          <div
+            className="settings-row"
+            style={{ opacity: chatterEnabled ? 1 : 0.45 }}
+          >
+            <div className="settings-row-text">
+              <span className="settings-row-name">间隔(分钟)</span>
+              <span className="settings-row-desc">
+                每次碎碎念之间的间隔在两个数之间随机,避免固定节奏被听出来。默认 8~25。
+              </span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <input
+                type="number"
+                className="settings-num-input"
+                min={2}
+                max={240}
+                value={chatterMin}
+                disabled={!chatterEnabled}
+                onChange={(e) => {
+                  const v = Math.max(2, Math.min(240, Number(e.target.value) || 8));
+                  setChatterMin(v);
+                  void persistProExtra({ chatterMinMinutes: v });
+                }}
+              />
+              <span style={{ opacity: 0.6 }}>~</span>
+              <input
+                type="number"
+                className="settings-num-input"
+                min={2}
+                max={240}
+                value={chatterMax}
+                disabled={!chatterEnabled}
+                onChange={(e) => {
+                  const v = Math.max(2, Math.min(240, Number(e.target.value) || 25));
+                  setChatterMax(v);
+                  void persistProExtra({ chatterMaxMinutes: v });
+                }}
+              />
+            </div>
+          </div>
+
+          <div
+            className="settings-row"
+            style={{ opacity: chatterEnabled ? 1 : 0.45 }}
+          >
+            <div className="settings-row-text">
+              <span className="settings-row-name">活跃时段</span>
+              <span className="settings-row-desc">
+                只有这个时间段里会碎碎念。夜里想让它安静就把结束时间调到早上。
+              </span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <input
+                type="number"
+                className="settings-num-input"
+                min={0}
+                max={23}
+                value={chatterStartHour}
+                disabled={!chatterEnabled}
+                onChange={(e) => {
+                  const v = Math.max(0, Math.min(23, Number(e.target.value) || 0));
+                  setChatterStartHour(v);
+                  void persistProExtra({ chatterStartHour: v });
+                }}
+              />
+              <span style={{ opacity: 0.6 }}>点 ~</span>
+              <input
+                type="number"
+                className="settings-num-input"
+                min={0}
+                max={23}
+                value={chatterEndHour}
+                disabled={!chatterEnabled}
+                onChange={(e) => {
+                  const v = Math.max(0, Math.min(23, Number(e.target.value) || 0));
+                  setChatterEndHour(v);
+                  void persistProExtra({ chatterEndHour: v });
+                }}
+              />
+              <span style={{ opacity: 0.6 }}>点</span>
+            </div>
+          </div>
+        </div>
+
+        {/* ===== 多屏漫游 ===== */}
+        <div className="settings-section">
+          <div className="settings-section-title">多屏漫游</div>
+
+          <label className="settings-row">
+            <div className="settings-row-text">
+              <span className="settings-row-name">允许走到别的屏幕</span>
+              <span className="settings-row-desc">
+                桌宠会自己走到相邻屏幕去散步。跨屏时按"地面高度"走 ——
+                上台阶超过 120px 会挡住(爬不上去),下台阶不限。
+              </span>
+            </div>
+            <input
+              type="checkbox"
+              className="settings-toggle"
+              checked={roamMultiScreen}
+              onChange={(e) => {
+                setRoamMultiScreen(e.target.checked);
+                void persistProExtra({ roamMultiScreen: e.target.checked });
+              }}
+            />
+          </label>
+
+          <label
+            className="settings-row"
+            style={{ opacity: roamMultiScreen ? 1 : 0.45 }}
+          >
+            <div className="settings-row-text">
+              <span className="settings-row-name">漫游时贴地</span>
+              <span className="settings-row-desc">
+                走到别的屏幕后落到那个屏幕的底部地面。关掉的话它会保持原来的高度飘着。
+              </span>
+            </div>
+            <input
+              type="checkbox"
+              className="settings-toggle"
+              checked={roamSnapToGround}
+              disabled={!roamMultiScreen}
+              onChange={(e) => {
+                setRoamSnapToGround(e.target.checked);
+                void persistProExtra({ roamSnapToGround: e.target.checked });
+              }}
+            />
+          </label>
+        </div>
+
+        {/* ===== Agent CLI 联动 =====
+              让桌宠把活派给本机的 coding agent(hermes / codex / claude 等)去做。 */}
+        <div className="settings-section">
+          <div className="settings-section-title">Agent 联动</div>
+
+          <label className="settings-row">
+            <div className="settings-row-text">
+              <span className="settings-row-name">启用 agent 联动</span>
+              <span className="settings-row-desc">
+                桌宠可以把任务交给本机的 coding agent(hermes / codex / claude 等)执行。
+                探测是只读的;真正执行前会弹确认框。
+              </span>
+            </div>
+            <input
+              type="checkbox"
+              className="settings-toggle"
+              checked={agentBridge.enabled}
+              onChange={(e) => void persistAgentBridge({ enabled: e.target.checked })}
+            />
+          </label>
+
+          <div
+            className="settings-row"
+            style={{ opacity: agentBridge.enabled ? 1 : 0.45 }}
+          >
+            <div className="settings-row-text">
+              <span className="settings-row-name">后端</span>
+              <span className="settings-row-desc">
+                {agentProbing
+                  ? '正在探测…'
+                  : agentBackends.length === 0
+                    ? '没探测到结果,点下面的「重新探测」。'
+                    : agentBackends
+                        .map((b) => `${b.id}${b.available ? ' ✓' : ' ✗'}`)
+                        .join('  ')}
+                {agentBridge.backendId === 'auto' ? '(当前:自动挑第一个可用的)' : ''}
+              </span>
+            </div>
+            <select
+              className="settings-num-input"
+              value={agentBridge.backendId}
+              disabled={!agentBridge.enabled}
+              onChange={(e) => void persistAgentBridge({ backendId: e.target.value })}
+              style={{ minWidth: 140 }}
+            >
+              <option value="auto">auto(自动)</option>
+              {agentBackends.map((b) => (
+                <option key={b.id} value={b.id} disabled={!b.available}>
+                  {b.label}
+                  {b.available ? '' : '(不可用)'}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div
+            className="settings-row"
+            style={{ opacity: agentBridge.enabled ? 1 : 0.45 }}
+          >
+            <div className="settings-row-text">
+              <span className="settings-row-name">超时(秒)</span>
+              <span className="settings-row-desc">单次任务最长等待时间。</span>
+            </div>
+            <input
+              type="number"
+              className="settings-num-input"
+              min={10}
+              max={1800}
+              value={agentBridge.timeoutSec}
+              disabled={!agentBridge.enabled}
+              onChange={(e) =>
+                void persistAgentBridge({
+                  timeoutSec: Math.max(10, Math.min(1800, Number(e.target.value) || 300)),
+                })
+              }
+            />
+          </div>
+
+          <div
+            className="settings-row"
+            style={{ opacity: agentBridge.enabled ? 1 : 0.45 }}
+          >
+            <div className="settings-row-text">
+              <span className="settings-row-name">执行前确认</span>
+              <span className="settings-row-desc">
+                agent 可能改你的文件。开着这个,每次执行前都会先问你一句。
+              </span>
+            </div>
+            <input
+              type="checkbox"
+              className="settings-toggle"
+              checked={agentBridge.confirmBeforeRun}
+              disabled={!agentBridge.enabled}
+              onChange={(e) => void persistAgentBridge({ confirmBeforeRun: e.target.checked })}
+            />
+          </div>
+
+          <div className="settings-row">
+            <div className="settings-row-text">
+              <span className="settings-row-name">重新探测</span>
+              <span className="settings-row-desc">
+                检查本机装了哪些 agent CLI。探测只读,不执行任何东西。
+              </span>
+            </div>
+            <button className="mini-btn" onClick={() => void probeAgents()} disabled={agentProbing}>
+              {agentProbing ? '探测中…' : '探测'}
+            </button>
+          </div>
         </div>
 
         {/* ===== 对话框语音输入 ===== */}

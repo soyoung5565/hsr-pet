@@ -122,6 +122,8 @@ export interface AppConfig {
   visionAssist?: VisionAssistConfig;
   /** 通用模型辅助 — AI 觉得自己干不动某项任务时,可调 delegate_to_model 让别的模型帮忙。 */
   generalAssist?: GeneralAssistConfig;
+  /** 外部 agent CLI 联动 — 让桌宠把活派给 hermes / codex / claude 等本机 coding agent。 */
+  agentBridge?: AgentBridgeConfig;
 }
 
 /** 视觉辅助配置。
@@ -191,7 +193,47 @@ export interface ProactiveConfig {
   /** 切到浏览器(Edge/Chrome)时,自动调 BrowserMCP / Chrome MCP 工具读当前标签页内容。
    *  需要装好对应 MCP server + 浏览器扩展。 */
   autoReadBrowser: boolean;
+
+  /* ---------- 碎碎念(自言自语) ---------- */
+  /** 碎碎念总开关。开启后桌宠在空闲时会自言自语,不需要用户先说话。 */
+  chatterEnabled: boolean;
+  /** 碎碎念最短间隔(分钟)。两次自言自语之间至少隔这么久,避免刷屏。 */
+  chatterMinMinutes: number;
+  /** 碎碎念最长间隔(分钟)。超过它必说一句(在启用时段内)。 */
+  chatterMaxMinutes: number;
+  /** 碎碎念活跃时段(24 小时制)。区间外不说话(避免深夜打扰)。 */
+  chatterStartHour: number;
+  chatterEndHour: number;
+  /** 只在用户无操作时才碎碎念(有操作时闭嘴,避免打断)。默认 true。 */
+  chatterOnlyWhenIdle: boolean;
+
+  /* ---------- 屏幕漫游(多屏) ---------- */
+  /** 允许跨屏漫游。关闭后只在主屏范围内走动。 */
+  roamMultiScreen: boolean;
+  /** 漫游时是否贴地(开启后 y 自动贴合地面;关闭则保持用户拖到的 y)。 */
+  roamSnapToGround: boolean;
 }
+
+/** 外部 agent CLI 联动配置 —— 让桌宠能把活派给本机的 coding agent。 */
+export interface AgentBridgeConfig {
+  /** 总开关。关闭后 AI 的 agent_run 工具不可用。 */
+  enabled: boolean;
+  /** 指定后端 id;'auto' = 按优先级自动挑第一个可用的。 */
+  backendId: string;
+  /** 单次任务超时(秒),默认 300。 */
+  timeoutSec: number;
+  /** 默认工作目录;空 = 用户 home。 */
+  workDir?: string;
+  /** 派活前是否要用户确认(默认 true —— 让 agent 改文件是有副作用的)。 */
+  confirmBeforeRun: boolean;
+}
+
+const DEFAULT_AGENT_BRIDGE: AgentBridgeConfig = {
+  enabled: true,
+  backendId: 'auto',
+  timeoutSec: 300,
+  confirmBeforeRun: true,
+};
 
 const DEFAULT_PROACTIVE: ProactiveConfig = {
   enabled: false,
@@ -201,6 +243,16 @@ const DEFAULT_PROACTIVE: ProactiveConfig = {
   idleStayMinutes: 20,
   autoReadScreen: false,
   autoReadBrowser: false,
+  // 碎碎念默认关(用户显式开才生效,避免突然自己说话吓到人)
+  chatterEnabled: false,
+  chatterMinMinutes: 8,
+  chatterMaxMinutes: 25,
+  chatterStartHour: 9,
+  chatterEndHour: 23,
+  chatterOnlyWhenIdle: true,
+  // 多屏漫游默认开(单屏机器上等价于原来行为,不会变差)
+  roamMultiScreen: true,
+  roamSnapToGround: true,
 };
 
 /** 一个 MCP server 的启动规格(stdio transport)。主进程会按此 spawn 子进程。 */
@@ -280,6 +332,9 @@ interface LegacyConfig {
   mcp?: McpConfig;
   agentSkills?: AgentSkillsConfig;
   proactive?: ProactiveConfig;
+  /** 外部 agent CLI 联动配置。必须在这里声明,否则 migrate() 读不到
+   *  用户在设置里保存的值 —— 表现为"改了后端/超时没反应"。 */
+  agentBridge?: AgentBridgeConfig;
   providerProfiles?: ProviderProfile[];
   activeProviderId?: string;
   visionAssist?: VisionAssistConfig;
@@ -420,6 +475,9 @@ function migrate(j: LegacyConfig): AppConfig {
     mcp: migrateMcp(j.mcp),
     agentSkills: migrateAgentSkills(j.agentSkills),
     proactive: j.proactive ?? undefined,
+    // ⚠ agentBridge 必须在这里显式带回,否则用户在设置里改了"后端 / 超时 / 开关",
+    //   写进 config.json 了,但 loadConfig 读回来时把它丢了 —— 表现为"改了没反应"。
+    agentBridge: j.agentBridge ?? undefined,
     providerProfiles: Array.isArray(j.providerProfiles) ? j.providerProfiles : undefined,
     activeProviderId: j.activeProviderId ?? undefined,
     visionAssist: j.visionAssist ?? undefined,
@@ -465,6 +523,11 @@ export function loadConfig(): AppConfig {
 /** 取主动互动配置,合并默认值(任何字段缺失走默认)。 */
 export function getProactiveConfig(cfg: AppConfig): ProactiveConfig {
   return { ...DEFAULT_PROACTIVE, ...(cfg.proactive ?? {}) };
+}
+
+/** 取 agent 联动配置,合并默认值。 */
+export function getAgentBridgeConfig(cfg: AppConfig): AgentBridgeConfig {
+  return { ...DEFAULT_AGENT_BRIDGE, ...(cfg.agentBridge ?? {}) };
 }
 
 /** 取当前激活 skill 的 system prompt(空字符串表示无 / 未配置) */
