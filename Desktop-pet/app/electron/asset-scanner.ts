@@ -13,6 +13,12 @@ import type {
   SpriteStateOrComposite,
 } from '../shared/character.js';
 import { mergeHatchPetBehaviorConfig } from '../shared/hatch-pet-behavior.js';
+import {
+  memeDescriptionsFromConfig,
+  type VideoPetAnimationConfig,
+  type VideoPetCharacter,
+  type VideoPetManifest,
+} from '../shared/video-pet.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -31,14 +37,24 @@ export function resolveAssetRoots(): {
   hatchPet: string;
   /** Hatch-Pet 用户根:userData/hatch-pet。可写,设置面板「导入」会把新角色落到这里。 */
   hatchPetUser: string;
+  /** Video-Pet 内置根:dev=app/video-pet,prod=resourcesPath/video-pet。 */
+  videoPet: string;
+  /** Video-Pet 用户根:userData/video-pet。 */
+  videoPetUser: string;
   voskBuiltin: string;
 } {
   // 用户根总在 userData/hatch-pet,dev/prod 共享 — 用户在 dev 态导入的角色,
   // 切到打包版仍能用(只要打包版连着同一个 userData)。
   const userHatchPet = path.join(app.getPath('userData'), 'hatch-pet');
+  const userVideoPet = path.join(app.getPath('userData'), 'video-pet');
 
-  const isDev = !!process.env.VITE_DEV_SERVER_URL;
-  if (isDev) {
+  // ★ 用 app.isPackaged 判生产/开发,不要用 VITE_DEV_SERVER_URL:
+  //   后者只在「npm run dev 起了 vite dev server」时为真。
+  //   而 `npx electron .`(先 build 再直接跑)时它是空 —— 结果资源根会指向
+  //   node_modules/electron/dist/resources(打包后的路径),开发时所有素材都找不到。
+  //   实测踩过:hatch-pet 只剩 userData 里的 11 只,内置的全丢了。
+  const isPackaged = app.isPackaged;
+  if (!isPackaged) {
     // dist-electron/main.js 位于 app/dist-electron 下;app 根 = ..
     const appRoot = path.resolve(__dirname, '..');
     return {
@@ -48,6 +64,8 @@ export function resolveAssetRoots(): {
       // 用户手动从外部 `自制/` 复制进来,扫描器读到就自动出现在角色菜单。
       hatchPet: path.join(appRoot, 'hatch-pet'),
       hatchPetUser: userHatchPet,
+      videoPet: path.join(appRoot, 'video-pet'),
+      videoPetUser: userVideoPet,
       voskBuiltin: path.join(appRoot, 'VOSK'), // 内置 vosk 小模型目录(zip 放这里)
     };
   }
@@ -56,6 +74,8 @@ export function resolveAssetRoots(): {
     sprite: path.join(process.resourcesPath, 'live2d'),
     hatchPet: path.join(process.resourcesPath, 'hatch-pet'),
     hatchPetUser: userHatchPet,
+    videoPet: path.join(process.resourcesPath, 'video-pet'),
+    videoPetUser: userVideoPet,
     voskBuiltin: path.join(process.resourcesPath, 'VOSK'),
   };
 }
@@ -433,24 +453,180 @@ export async function scanHatchPet(
   return out.sort((a, b) => a.name.localeCompare(b.name, 'zh'));
 }
 
+// ------------------------- Video-Pet -------------------------
+
+/**
+ * 扫描 Video-Pet 角色根 —— dsh-pet 风格的大肥鱼素材包。
+ *
+ * 目录结构(一只桌宠一个文件夹):
+ *   video-pet/<角色名>/
+ *     dsh-config.json    动画分类 + 人设 + 表情包描述
+ *     webm/*.webm        透明动画
+ *     memes/*.png        表情图
+ *     sound/*.wav        点击音效
+ *
+ * dsh-config.json 是 dsh-pet 的配置格式(顶层键比较多,这里只取需要的),
+ * 素材清单靠**扫目录**得到而不是信 config 里的列表 —— config 可能列了不存在的文件,
+ * 那样播放时才会炸;扫描阶段就把不存在的排除掉。
+ */
+export async function scanVideoPet(
+  root: string,
+  source: 'builtin' | 'user',
+  errors: string[],
+): Promise<VideoPetCharacter[]> {
+  if (!(await exists(root))) return [];
+
+  let entries;
+  try {
+    entries = await fs.readdir(root, { withFileTypes: true });
+  } catch (e) {
+    errors.push(`video-pet 读取失败:${root} (${(e as Error).message})`);
+    return [];
+  }
+
+  const idPrefix = source === 'builtin' ? 'video-b-' : 'video-u-';
+  const out: VideoPetCharacter[] = [];
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const dir = path.join(root, entry.name);
+    const configPath = path.join(dir, 'dsh-config.json');
+    if (!(await exists(configPath))) continue;
+
+    let config: {
+      whisperPrompt?: string;
+      sleepRefuseTexts?: string[];
+      sleepStartTexts?: string[];
+      sleepEndTexts?: string[];
+      memes?: Record<string, string>;
+      physics?: Record<string, number | boolean>;
+      eventsRefreshSec?: { balance?: number; whisper?: number; sleepTalk?: number };
+      animations?: VideoPetAnimationConfig;
+    };
+    try {
+      config = JSON.parse(await fs.readFile(configPath, 'utf-8'));
+    } catch (e) {
+      errors.push(`video-pet 配置解析失败:${configPath} (${(e as Error).message})`);
+      continue;
+    }
+
+    // 扫 webm 目录 → 动画名 → 文件名
+    const webmDir = path.join(dir, 'webm');
+    const animations: Record<string, string> = {};
+    if (await exists(webmDir)) {
+      let files: string[];
+      try {
+        files = await fs.readdir(webmDir);
+      } catch (e) {
+        errors.push(`video-pet webm 读取失败:${webmDir} (${(e as Error).message})`);
+        continue;
+      }
+      for (const file of files) {
+        if (!file.toLowerCase().endsWith('.webm')) continue;
+        animations[file.slice(0, -'.webm'.length)] = file;
+      }
+    }
+    if (!Object.keys(animations).length) {
+      errors.push(`video-pet 没有可用的 webm 动画:${webmDir}`);
+      continue;
+    }
+
+    // 扫 memes 目录
+    const memes: Record<string, string> = {};
+    const memesDir = path.join(dir, 'memes');
+    if (await exists(memesDir)) {
+      let files: string[];
+      try {
+        files = await fs.readdir(memesDir);
+      } catch {
+        files = [];
+      }
+      for (const file of files) {
+        if (!file.toLowerCase().endsWith('.png')) continue;
+        memes[file.slice(0, -'.png'.length)] = file;
+      }
+    }
+
+    // 点击音效:取第一个 wav
+    let clickSound: string | undefined;
+    const soundDir = path.join(dir, 'sound');
+    if (await exists(soundDir)) {
+      try {
+        const files = await fs.readdir(soundDir);
+        const wav = files.find((f) => f.toLowerCase().endsWith('.wav'));
+        if (wav) clickSound = wav;
+      } catch {
+        /* 没有音效不算错 */
+      }
+    }
+
+    const anim = config.animations;
+    if (!anim) {
+      errors.push(`video-pet 配置缺 animations 段:${configPath}`);
+      continue;
+    }
+
+    const manifest: VideoPetManifest = {
+      id: entry.name,
+      displayName: entry.name,
+      root: dir,
+      animations,
+      categories: anim,
+      memes,
+      memeDescriptions: memeDescriptionsFromConfig(config.memes),
+      clickSound,
+      persona: config.whisperPrompt,
+      sleepRefuseTexts: config.sleepRefuseTexts,
+      sleepStartTexts: config.sleepStartTexts,
+      sleepEndTexts: config.sleepEndTexts,
+      balanceAnimations: anim.events?.balance,
+      whisperAnimations: anim.events?.whisper,
+      workStatusAnimations: anim.events?.workStatus,
+      eventsRefreshSec: config.eventsRefreshSec,
+      physics: config.physics,
+    };
+
+    out.push({
+      id: `${idPrefix}${entry.name}`,
+      name: entry.name,
+      category: 'Video Pet',
+      type: 'video-pet',
+      source,
+      root: dir,
+      manifestPath: configPath,
+      assetRoot: dir,
+      manifest,
+      expressions: [],
+      motions: [],
+      hitAreas: [],
+    });
+  }
+
+  return out.sort((a, b) => a.name.localeCompare(b.name, 'zh'));
+}
+
 // ------------------------- 入口 -------------------------
 
 export async function scanAll(): Promise<CharacterIndex> {
   const errors: string[] = [];
   const roots = resolveAssetRoots();
   // sprite 自制模型暂时不上线;Hatch-Pet 扫两个根:builtin + user
-  const [live2d, hatchPetBuiltin, hatchPetUser] = await Promise.all([
+  const [live2d, hatchPetBuiltin, hatchPetUser, videoPetBuiltin, videoPetUser] = await Promise.all([
     scanLive2D(roots.live2d, errors),
     scanHatchPet(roots.hatchPet, 'builtin', errors),
     scanHatchPet(roots.hatchPetUser, 'user', errors),
+    scanVideoPet(roots.videoPet, 'builtin', errors),
+    scanVideoPet(roots.videoPetUser, 'user', errors),
   ]);
   // user 角色在前(用户最近导入的更可能想用),builtin 在后
   const hatchPet = [...hatchPetUser, ...hatchPetBuiltin];
+  const videoPet = [...videoPetUser, ...videoPetBuiltin];
   const sprite: SpriteCharacter[] = [];
   return {
     live2d,
     sprite,
     hatchPet,
+    videoPet,
     scannedAt: Date.now(),
     errors,
     roots,

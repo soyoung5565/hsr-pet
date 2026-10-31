@@ -7,11 +7,11 @@ import {
   getVoskState,
   type VoskState,
 } from '../render/vosk-shared';
-import type { Live2DCharacter, HatchPetCharacter } from '../../shared/character';
+import type { Live2DCharacter, HatchPetCharacter, VideoPetCharacter } from '../../shared/character';
 
 /** 角色菜单 / 设置 / Persona 编辑 共用的 character 类型。
- *  Live2D 与 Hatch-Pet 都参与角色切换 + AI persona 配置;sprite 还没启用故不并入。 */
-type MenuCharacter = Live2DCharacter | HatchPetCharacter;
+ *  Live2D / Hatch-Pet / Video-Pet 都参与角色切换 + AI persona 配置;sprite 还没启用故不并入。 */
+type MenuCharacter = Live2DCharacter | HatchPetCharacter | VideoPetCharacter;
 import type {
   AgentBackendInfo,
   AgentBridgeConfig,

@@ -171,6 +171,16 @@ export interface ProviderProfile {
   apiKey: string;
   model: string;
   modelPresets: string[];
+  /**
+   * 协议形态:openai(默认) / anthropic。
+   *
+   * ★ MiniMax 必须区分:
+   *   - 文本对话 + 工具调用:原生 OpenAI 兼容端点就行(/v1/chat/completions)
+   *   - 图片输入           :必须走 Anthropic 兼容端点(/anthropic/v1/messages)
+   *     (实测 2026-10-31:原生端点收下 image_url 但模型不解析,回「请上传图片」)
+   * 同一个 profile 只能选一种端点 —— 想又要文本又要视觉,得开两个 profile。
+   */
+  apiMode?: 'openai' | 'anthropic';
 }
 
 /** 主动互动增强配置。所有触发都只在桌宠窗口可见 + 模型未隐藏时进行。 */

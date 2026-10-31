@@ -1,5 +1,7 @@
 // 主进程 + 渲染进程共享的类型定义。仅 type/interface,无运行时代码。
 
+import type { VideoPetManifest } from './video-pet.js';
+
 export interface Live2DExpressionRef {
   name: string;
   file: string;
@@ -113,12 +115,41 @@ export interface HatchPetBehaviorConfig {
   restMs?: [number, number];
 }
 
-export type Character = Live2DCharacter | SpriteCharacter | HatchPetCharacter;
+export type Character = Live2DCharacter | SpriteCharacter | HatchPetCharacter | VideoPetCharacter;
+
+/**
+ * Video-Pet 角色 —— dsh-pet 风格的透明 webm 动画桌宠(大肥鱼/蓝发小女仆)。
+ *
+ * 与前两类的区别:素材是**视频**而不是图片。
+ *   - Live2DCharacter:PIXI 渲染的 Live2D 模型
+ *   - HatchPetCharacter:Canvas 2D 逐帧切的精灵表
+ *   - VideoPetCharacter:<video> 元素播的 VP9-alpha webm(109 段动画)
+ *
+ * 详细契约见 shared/video-pet.ts。
+ */
+export interface VideoPetCharacter {
+  id: string;
+  name: string;
+  category: string;        // 角色菜单分组
+  type: 'video-pet';
+  source: 'builtin' | 'user';
+  root: string;            // 角色文件夹绝对路径
+  manifestPath: string;    // dsh-config.json 绝对路径
+  /** 素材根绝对路径(webm/ memes/ sound/ 都在它下面) */
+  assetRoot: string;
+  manifest: VideoPetManifest;
+  // 占位字段(让 PetMenu / DebugPanel 等老组件不报错)
+  expressions: string[];
+  motions: { group: string; count: number }[];
+  hitAreas: { name: string; id: string }[];
+}
 
 export interface CharacterIndex {
   live2d: Live2DCharacter[];
   sprite: SpriteCharacter[];
   hatchPet: HatchPetCharacter[];
+  /** dsh-pet 风格的透明 webm 动画角色。 */
+  videoPet: VideoPetCharacter[];
   scannedAt: number; // 时间戳,便于诊断
   errors: string[];  // 扫描过程中记录的非致命错误
   // 资源根目录(绝对路径),用于把模型/帧绝对路径换算成 pet:// URL
@@ -129,5 +160,9 @@ export interface CharacterIndex {
     hatchPet: string;
     /** Hatch-Pet 用户根 — userData/hatch-pet,通过设置面板导入的角色落到这里 */
     hatchPetUser: string;
+    /** Video-Pet 内置根 — dev=app/video-pet,prod=resourcesPath/video-pet */
+    videoPet: string;
+    /** Video-Pet 用户根 — userData/video-pet */
+    videoPetUser: string;
   };
 }

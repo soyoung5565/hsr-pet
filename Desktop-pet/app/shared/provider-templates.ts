@@ -23,6 +23,16 @@ export interface ProviderTemplate {
   note?: string;
   /** 是否支持视觉(image_url 输入)— UI 里打个小标 */
   vision?: boolean;
+  /**
+   * 协议形态 —— 决定请求怎么发。
+   *  - 'openai'(默认):`{baseURL}/chat/completions`,Authorization: Bearer
+   *  - 'anthropic'      :`{baseURL}/v1/messages`,X-Api-Key + anthropic-version
+   *
+   * ★ 为什么需要区分:MiniMax 的**原生 OpenAI 兼容端点不吃图片**
+   *   (实测 2026-10-31:原生端点收下 image_url 但不解析,模型回「请上传图片」),
+   *   而 Anthropic 兼容端点吃。所以要视觉能力就必须走 anthropic 协议。
+   */
+  apiMode?: 'openai' | 'anthropic';
 }
 
 export const PROVIDER_TEMPLATES: ProviderTemplate[] = [
@@ -104,6 +114,26 @@ export const PROVIDER_TEMPLATES: ProviderTemplate[] = [
     applyUrl: 'https://openrouter.ai/keys',
     note: '全球模型聚合,可用各家前沿模型',
     vision: true,
+  },
+  {
+    id: 'minimax',
+    name: 'MiniMax(国内)',
+    baseURL: 'https://api.minimax.cn/anthropic',
+    models: ['MiniMax-M3.1-Flash', 'MiniMax-M3', 'MiniMax-M2.7', 'MiniMax-M2.5'],
+    applyUrl: 'https://platform.minimaxi.com/user-center/basic-information/interface-key',
+    note: '★ 走 Anthropic 兼容端点。原生 OpenAI 端点不吃图片(视觉能力会失效)。音频另走 /v1/speech_to_text',
+    vision: true,
+    apiMode: 'anthropic',
+  },
+  {
+    id: 'minimax-global',
+    name: 'MiniMax(国际)',
+    baseURL: 'https://api.minimaxi.com/anthropic',
+    models: ['MiniMax-M3.1-Flash', 'MiniMax-M3', 'MiniMax-M2.7', 'MiniMax-M2.5'],
+    applyUrl: 'https://platform.minimax.io/user-center/basic-information/interface-key',
+    note: '国际站。同一套 key 在国内站/国际站都可用',
+    vision: true,
+    apiMode: 'anthropic',
   },
   {
     id: 'ollama',

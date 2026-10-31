@@ -16,9 +16,7 @@ import {
 import {
   DEFAULT_PHYSICS,
   estimateReleaseVelocity,
-  landingSquash,
   softClampSpeed,
-  squashScale,
   springStep,
   throwBounds,
   throwStep,
@@ -99,12 +97,6 @@ interface PhysicsState {
   /** 当前速度(px/s) */
   vx: number;
   vy: number;
-  /** Q 弹:压缩起始时间戳 */
-  squashStart: number;
-  /** Q 弹:结束时间戳(0 = 不在压缩) */
-  squashUntil: number;
-  /** Q 弹:目标 scaleY(1 = 不压缩) */
-  squashAmount: number;
 }
 
 function createPhysicsState(): PhysicsState {
@@ -114,9 +106,6 @@ function createPhysicsState(): PhysicsState {
     y: 0,
     vx: 0,
     vy: 0,
-    squashStart: 0,
-    squashUntil: 0,
-    squashAmount: 1,
   };
 }
 
@@ -409,8 +398,6 @@ export const HatchPetHost = forwardRef<CharacterHostHandle, Props>(function Hatc
   const dragDirRef = useRef<1 | -1>(1);
   /** 抛掷物理共享状态(拖拽 effect 写,物理 effect 读) */
   const physicsStateRef = useRef<PhysicsState>(createPhysicsState());
-  /** Q 弹动画的 rAF 句柄 —— 压缩是 220ms 的连续动画,不能靠一次性赋值 */
-  const squashRafRef = useRef<number | null>(null);
 
   // ---- 行为状态机 ----
   // 系统态(由外部 pet:state 注入):idle 时跑桌宠行为(walk/rest);
@@ -520,8 +507,6 @@ export const HatchPetHost = forwardRef<CharacterHostHandle, Props>(function Hatc
 
   // 角色切换时:读新角色的持久化位置 + 同步 DOM
   useEffect(() => {
-    // 切角色前先复位上一只的 Q 弹 transform,否则残留缩放会带到新角色身上
-    cancelSquash();
     // 停止飞行
     const pst = physicsStateRef.current;
     pst.flying = false;
@@ -557,49 +542,6 @@ export const HatchPetHost = forwardRef<CharacterHostHandle, Props>(function Hatc
     if (!el) return;
     el.style.left = `${posRef.current.x}px`;
     el.style.top = `${posRef.current.y}px`;
-  };
-
-  /**
-   * Q 弹挤压动画 —— 落地/点击时身体垂直压扁再回弹。
-   *
-   * 为什么单独跑一个 rAF 而不是塞进渲染循环:渲染循环按 fps 切帧(8fps),
-   * 8fps 下的挤压动画是「一顿一顿」的,完全没有弹性感。
-   * 挤压必须 60fps 才有手感。
-   *
-   * 用 canvas 的 CSS transform 做缩放:scaleY 压扁 + scaleX 反向补偿
-   * (体积守恒的错觉),比单纯压扁更像真实弹性体。
-   */
-  const startSquash = (squash: number) => {
-    const el = containerRef.current;
-    if (!el) return;
-    if (squashRafRef.current != null) cancelAnimationFrame(squashRafRef.current);
-    const start = performance.now();
-    const DURATION = 220;
-    const step = (now: number) => {
-      const u = Math.min(1, (now - start) / DURATION);
-      const scaleY = squashScale(u, squash);
-      // 体积守恒错觉:压得越扁,横向越宽
-      const scaleX = 1 + (1 - scaleY) * 0.35;
-      el.style.transform = `translate(-50%, -50%) scale(${scaleX.toFixed(4)}, ${scaleY.toFixed(4)})`;
-      if (u < 1) {
-        squashRafRef.current = requestAnimationFrame(step);
-      } else {
-        squashRafRef.current = null;
-        // 复位,避免残留 transform 影响后续布局
-        el.style.transform = 'translate(-50%, -50%)';
-      }
-    };
-    squashRafRef.current = requestAnimationFrame(step);
-  };
-
-  /** 立即取消 Q 弹动画并复位 transform(角色切换/卸载时用) */
-  const cancelSquash = () => {
-    if (squashRafRef.current != null) {
-      cancelAnimationFrame(squashRafRef.current);
-      squashRafRef.current = null;
-    }
-    const el = containerRef.current;
-    if (el) el.style.transform = 'translate(-50%, -50%)';
   };
 
   useEffect(() => {
@@ -777,12 +719,8 @@ export const HatchPetHost = forwardRef<CharacterHostHandle, Props>(function Hatc
           // posRef 是中心点,物理层是左上角语义 —— 存中心点,物理 effect 里负责换算
           pst.x = posRef.current.x;
           pst.y = posRef.current.y;
-        } else if (hasMoved) {
-          // 拖了一段但速度不够 → 温柔放下:原地停住,给个小 Q 弹表示「被轻轻放下」
-          startSquash(0.88);
         } else {
-          // 纯点击(没拖动)→ Q 弹回应 + 播开心动作
-          startSquash(0.72);
+          // 纯点击(没拖动)→ 播开心动作
           emotionRowRef.current = clampAtlasRow(
             behaviorConfigRef.current?.emotionRows?.happy,
             ROW_JUMPING,
@@ -890,13 +828,6 @@ export const HatchPetHost = forwardRef<CharacterHostHandle, Props>(function Hatc
         st.y = r.y + halfH + originY;
         st.vx = r.vx;
         st.vy = r.vy;
-        if (r.bounced) {
-          // 落地/撞墙 → 触发 Q 弹(按冲击速度决定压多狠)
-          const impact = Math.abs(r.vy);
-          if (impact > 50) {
-            startSquash(landingSquash(impact));
-          }
-        }
         if (r.atRest) {
           st.flying = false;
           st.vx = 0;

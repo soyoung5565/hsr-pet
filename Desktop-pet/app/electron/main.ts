@@ -1189,6 +1189,14 @@ function registerPetProtocol(): void {
         // pet://hatch-pet-user/<dir>/spritesheet.webp  → userData/hatch-pet,导入后落到这里
         baseDir = roots.hatchPetUser;
         fullPath = path.join(baseDir, relPath);
+      } else if (host === 'video-pet') {
+        // pet://video-pet/<角色名>/webm/<动画>.webm  → 内置 video-pet 根
+        baseDir = roots.videoPet;
+        fullPath = path.join(baseDir, relPath);
+      } else if (host === 'video-pet-user') {
+        // pet://video-pet-user/<角色名>/webm/<动画>.webm  → userData/video-pet
+        baseDir = roots.videoPetUser;
+        fullPath = path.join(baseDir, relPath);
       } else if (host === 'vosk-builtin') {
         // pet://vosk-builtin/<filename>.zip  → 内置 vosk 小模型目录
         // dev:app/VOSK/;prod:resourcesPath/VOSK/(extraResources 打包)

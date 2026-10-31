@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { CharacterIndex, Live2DCharacter, HatchPetCharacter } from '../shared/character';
+import type { CharacterIndex, Live2DCharacter, HatchPetCharacter, VideoPetCharacter } from '../shared/character';
 import { CharacterHost, type CharacterHostHandle } from './render/character-host';
 import { HatchPetHost } from './render/hatch-pet-host';
+import { VideoPetHost } from './render/video-pet-host';
 import { PetMenu } from './ui/pet-menu';
 import { ChatBubble } from './ui/chat-bubble';
 import { PetSpeechBubble } from './ui/pet-speech-bubble';
@@ -11,7 +12,7 @@ import { ClipboardSuggestionLayer } from './ui/clipboard-suggestion';
 import type { VoskState } from './render/vosk-shared';
 
 /** 当前外层支持的角色类型(sprite 还没启用)。 */
-type ActiveCharacter = Live2DCharacter | HatchPetCharacter;
+type ActiveCharacter = Live2DCharacter | HatchPetCharacter | VideoPetCharacter;
 
 function pickStartupCharacterId(
   idx: CharacterIndex,
@@ -167,10 +168,11 @@ export default function App() {
     return () => window.removeEventListener('pet:characters-changed', onCharsChanged);
   }, []);
 
-  // 合并 Live2D + Hatch-Pet 作为可选角色列表;sprite 仍未启用所以不并入
+  // 合并 Live2D + Hatch-Pet + Video-Pet 作为可选角色列表;sprite 仍未启用所以不并入
   const characters: ActiveCharacter[] = [
     ...(index?.live2d ?? []),
     ...(index?.hatchPet ?? []),
+    ...(index?.videoPet ?? []),
   ];
   // ref 镜像(声明在前面,避免 TDZ;这里赋值)
   charactersRef.current = characters;
@@ -307,6 +309,19 @@ export default function App() {
       )}
       {active && index && active.type === 'hatch-pet' && (
         <HatchPetHost
+          ref={hostRef}
+          key={active.id}
+          character={active}
+          roots={index.roots}
+          onError={(e) => setScanError(String(e))}
+          onContextMenu={handleContextMenu}
+          onScaleChange={setScale}
+          onAnchorY={setAnchorY}
+          visible={!modelHidden}
+        />
+      )}
+      {active && index && active.type === 'video-pet' && (
+        <VideoPetHost
           ref={hostRef}
           key={active.id}
           character={active}
