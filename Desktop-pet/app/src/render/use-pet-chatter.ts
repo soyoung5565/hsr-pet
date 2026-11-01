@@ -4,6 +4,7 @@ import {
   buildCharacterSystemPrompt,
   resolveDefaultCharacterPersona,
 } from '../../shared/emotion-map';
+import type { MemeEntry } from '../../shared/video-pet-runtime';
 
 /**
  * 碎碎念(自言自语)—— 桌宠在没人理它的时候自己嘀咕。
@@ -31,13 +32,28 @@ interface Args {
    * 有它就用它(优先),没有才回退到 characterPersonas 那套通用机制。
    */
   videoPetPersona?: string | null;
-  /** 在桌宠头顶气泡显示一段文字,duration 毫秒后自动消失。 */
-  showHint: (msg: string, duration: number) => void;
+  /**
+   * 在桌宠头顶气泡显示一段文字,duration 毫秒后自动消失。
+   * imageUrl 可选 —— 表情包配图(上游 dsh-pet 的气泡是「图 + 文字」)。
+   */
+  showHint: (msg: string, duration: number, imageUrl?: string | null) => void;
   /**
    * 说话那一刻的回调 —— 宿主用它触发事件动画(如碎碎念动画)。
    * 不传就不联动动画,只弹气泡。
    */
   onSpeak?: (kind: 'whisper') => void;
+  /**
+   * 取表情包池(碎碎念配图用)。
+   *
+   * 上游 dsh-pet 的策略:**碎碎念随机抽一张**,对话才按语境挑 ——
+   * 碎碎念没有上下文可选,随机才自然。
+   */
+  getMemes?: () => MemeEntry[];
+  /**
+   * 说话时的配图 —— 宿主返回图片 URL(或 null 表示不配图)。
+   * 由宿主决定要不要配(比如配置关了就不配)。
+   */
+  pickMeme?: () => string | null;
   /**
    * 取「用户空闲了多久」(ms)。
    *
@@ -199,7 +215,18 @@ function buildTopic(now: Date, minutesSinceActivity: number): string {
   return topics[Math.floor(Math.random() * topics.length)];
 }
 
-export function usePetChatter(args: Args): void {
+/**
+ * 手动触发一次碎碎念的句柄。
+ *
+ * 上游 dsh-pet 的右键菜单有「碎碎念」,点它随时来一句。
+ * 我们用返回的函数实现 —— 菜单通过 window 事件触发,这里订阅。
+ */
+export interface PetChatterHandle {
+  /** 立刻说一句(不等调度)。返回 false = 没配置好,说不了。 */
+  speakNow: () => Promise<boolean>;
+}
+
+export function usePetChatter(args: Args): PetChatterHandle {
   const { characterId, characterName, showHint, getIdleMs } = args;
 
   // Video-Pet 人设放 ref —— 它随角色切换变化,但不该触发整个 effect 重跑
@@ -216,6 +243,10 @@ export function usePetChatter(args: Args): void {
   const onSpeakRef = useRef(args.onSpeak);
   useEffect(() => {
     onSpeakRef.current = args.onSpeak;
+  });
+  const pickMemeRef = useRef(args.pickMeme);
+  useEffect(() => {
+    pickMemeRef.current = args.pickMeme;
   });
   const getIdleMsRef = useRef(getIdleMs);
   useEffect(() => {
@@ -267,16 +298,17 @@ export function usePetChatter(args: Args): void {
     window.addEventListener('petAI:configChanged', refresh);
 
     /** 说一次。成功 → 排下一次;失败 → 也排下一次(别卡死在原地) */
-    const speak = async () => {
-      if (signal.disposed) return;
-      if (document.hidden) return;
+    const speak = async (manual = false): Promise<boolean> => {
+      if (signal.disposed) return false;
+      if (document.hidden) return false;
 
       // 模型隐藏时不说话(用户把宠物藏了,还冒气泡就是骚扰)
       const root = document.querySelector('.app-root');
-      if (root?.classList.contains('app--model-hidden')) return;
+      if (root?.classList.contains('app--model-hidden')) return false;
 
       const now = new Date();
-      if (!inActiveHours(now.getHours(), cfg.startHour, cfg.endHour)) return;
+      // 手动触发不受时段限制 —— 用户主动要它说话,就得说
+      if (!manual && !inActiveHours(now.getHours(), cfg.startHour, cfg.endHour)) return false;
 
       // 只在主人安静时碎碎念(有操作时闭嘴,避免打断)
       // ⚠ idleMs = -1 表示"探测不可靠"(非 Windows / PS 起不来)。
@@ -284,7 +316,8 @@ export function usePetChatter(args: Args): void {
       //   应当放行 —— 宁可多嘴一句,也不能让功能静默失效。
       const idleMs = await getIdleMsRef.current();
       const idleReliable = idleMs >= 0;
-      if (cfg.onlyWhenIdle && idleReliable && idleMs < 3 * 60_000) return;
+      // 手动触发也不看 idle —— 用户主动点的
+      if (!manual && cfg.onlyWhenIdle && idleReliable && idleMs < 3 * 60_000) return false;
 
       // 人设优先级:Video-Pet 素材自带人设 > 设置面板里配的 persona
       const vpPersona = videoPetPersonaRef.current;
@@ -295,7 +328,7 @@ export function usePetChatter(args: Args): void {
         const persona = await resolvePersona(characterName);
         sys = buildCharacterSystemPrompt(persona);
       }
-      if (!sys) return;
+      if (!sys) return false;
 
       const minutes = idleReliable ? Math.floor(idleMs / 60_000) : 0;
       const topic = buildTopic(now, minutes);
@@ -309,14 +342,23 @@ export function usePetChatter(args: Args): void {
         '5. 语气要轻、要自然,像一个人在旁边小声念叨。';
 
       const line = await askOnce({ systemPrompt: sys, userPrompt, maxChars: 50, signal });
-      if (signal.disposed) return;
+      if (signal.disposed) return false;
       lastSpokeAt = Date.now();
-      if (line) {
+      if (!line) return false;
+      {
         // 先起动画再弹气泡 —— 动画与气泡是两个独立的东西,顺序不影响,
         // 但先起动画能让「说话」和「嘴在动」对上,观感更自然。
         onSpeakRef.current?.('whisper');
-        showHintRef.current(line, BUBBLE_MS);
+        // 表情包:碎碎念是**随机**抽一张(没有语境可选)
+        let imageUrl: string | null = null;
+        try {
+          imageUrl = pickMemeRef.current?.() ?? null;
+        } catch {
+          imageUrl = null;
+        }
+        showHintRef.current(line, BUBBLE_MS, imageUrl);
       }
+      return true;
     };
 
     /**
@@ -339,10 +381,25 @@ export function usePetChatter(args: Args): void {
     };
     const timer = window.setInterval(tick, 1000);
 
+    // 菜单「碎碎念」→ 立刻说一句(上游 dsh-pet 的同名入口)
+    const onManualWhisper = () => {
+      void speak(true);
+    };
+    window.addEventListener('pet:whisper', onManualWhisper);
+
     return () => {
       signal.disposed = true;
       window.clearInterval(timer);
       window.removeEventListener('petAI:configChanged', refresh);
+      window.removeEventListener('pet:whisper', onManualWhisper);
     };
   }, [characterId, characterName]);
+
+  // 手动触发的入口是 window 事件('pet:whisper'),上面已经订阅了。
+  // 这里返回一个空句柄只是为了保持 hook 返回类型稳定 —— 真要「立即说一句」,
+  // 派发 'pet:whisper' 事件即可。
+  return { speakNow: async () => {
+    window.dispatchEvent(new CustomEvent('pet:whisper'));
+    return true;
+  } };
 }

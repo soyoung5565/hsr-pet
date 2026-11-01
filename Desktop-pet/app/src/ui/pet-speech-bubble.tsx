@@ -25,12 +25,20 @@ interface Props {
   anchorY: number | null;
   /** 显示时长(毫秒);到期开始淡出 */
   durationMs: number;
+  /**
+   * 配图 URL(表情包)。
+   *
+   * ★ 上游 dsh-pet 的行为:碎碎念随机配一张图,对话按语境选一张图,
+   *   图与文字同时显示(图在上、文字在下)。有图时气泡不再有最小宽度,
+   *   否则图旁边会留一大片空白。
+   */
+  imageUrl?: string | null;
 }
 
 /** 淡出动画时长(ms),与 CSS 里 .pet-speech--out 的 animation-duration 对齐 */
 const FADE_OUT_MS = 200;
 
-export function PetSpeechBubble({ text, anchorY, durationMs }: Props): JSX.Element | null {
+export function PetSpeechBubble({ text, anchorY, durationMs, imageUrl }: Props): JSX.Element | null {
   const [phase, setPhase] = useState<Phase>('idle');
   const [shown, setShown] = useState('');
   const hideTimer = useRef<number | null>(null);
@@ -87,6 +95,9 @@ export function PetSpeechBubble({ text, anchorY, durationMs }: Props): JSX.Eleme
       aria-live="polite"
       title={shown}
     >
+      {/* 表情包在上、文字在下(上游 dsh-pet 的气泡排版)。
+          有图时去掉最小宽度 —— 否则图旁边会留一大片空白。 */}
+      {imageUrl && <img className="pet-speech-img" src={imageUrl} alt="" draggable={false} />}
       <span className="pet-speech-text">{shown}</span>
     </div>
   );

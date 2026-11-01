@@ -232,14 +232,28 @@ export function PetMenu({
   }, []);
 
   // 每次打开重置到根面板,并按桌宠位置决定菜单往哪边弹
+  //
+  // ★ 依赖里**不能**放 petPos:桌宠位置每 500ms 上报一次(角色在动就一直在变),
+  //   放进来会让这个 effect 反复重跑,而里面 setPanel('root') 会把用户刚打开的
+  //   面板立刻关掉 —— 表现是「点了没反应,面板永远不出来」。
+  //   实测踩过:petPos 进了依赖 → 所有子面板都打不开。
+  //
+  // 正确做法:只在 open 变化时重置面板;方向和位置用 ref 读最新值,
+  // 由下面那个定位 effect 负责(它没有 setPanel,不会互相干扰)。
+  const petPosRef = useRef(petPos);
+  useEffect(() => {
+    petPosRef.current = petPos;
+  }, [petPos]);
+
   useEffect(() => {
     if (!open) return;
     setPanel('root');
     // ★ 桌宠在窗口右半边 → 菜单从它左侧弹出;否则右侧。
     //   用桌宠的真实位置,不是窗口中心 —— 窗口是全屏的,窗口中心没意义。
-    const petX = petPos?.x ?? window.innerWidth / 2;
+    const petX = petPosRef.current?.x ?? window.innerWidth / 2;
     setSide(petX > window.innerWidth / 2 ? 'left' : 'right');
-  }, [open, petPos]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   /**
    * 菜单贴桌宠定位。
@@ -277,6 +291,12 @@ export function PetMenu({
     // 边界钳制 —— 至少留 12px 在屏内
     left = Math.max(12, Math.min(window.innerWidth - w - 12, left));
     top = Math.max(12, Math.min(window.innerHeight - h - 12, top));
+
+    // ★ 只在真的变了才写 DOM:桌宠位置每 500ms 上报一次,
+    //   每次都写 style 会触发重排(菜单跟着抖)。
+    const next = `${Math.round(left)}px|${Math.round(top)}px`;
+    if (el.dataset.anchoredAt === next) return;
+    el.dataset.anchoredAt = next;
 
     el.style.left = `${left}px`;
     el.style.top = `${top}px`;
@@ -413,6 +433,7 @@ export function PetMenu({
         <DraggableActionPanel
           onBack={() => setPanel('root')}
           hasHatchPet={characters.some((c) => c.id === activeId && c.type === 'hatch-pet')}
+          hasVideoPet={characters.some((c) => c.id === activeId && c.type === 'video-pet')}
         />
       )}
 
@@ -689,10 +710,13 @@ const ACTION_ROWS: { row: number; label: string; hint: string }[] = [
 function DraggableActionPanel({
   onBack,
   hasHatchPet,
+  hasVideoPet,
 }: {
   onBack: () => void;
   /** 当前角色是不是 hatch-pet(只有它有 atlas 动作行) */
   hasHatchPet: boolean;
+  /** 当前角色是不是 video-pet(只有它有 109 段命名动画 + 睡觉) */
+  hasVideoPet: boolean;
 }): JSX.Element {
   const { panelRef, panelStyle, titleProps } = useDraggablePanel();
 
@@ -715,9 +739,55 @@ function DraggableActionPanel({
         </button>
         <span>动作</span>
       </div>
+      {/* ---- Video-Pet:睡觉 / 起来 + 随机动作 ---- */}
+      {hasVideoPet && (
+        <>
+          <div className="action-grid">
+            <button
+              type="button"
+              className="action-item"
+              onClick={() => dispatchPetCommand('pet:sleep')}
+            >
+              <span className="action-item-label">睡觉</span>
+              <span className="action-item-hint">睡着后不打扰</span>
+            </button>
+            <button
+              type="button"
+              className="action-item"
+              onClick={() => dispatchPetCommand('pet:wake')}
+            >
+              <span className="action-item-label">起来</span>
+              <span className="action-item-hint">叫醒它</span>
+            </button>
+            <button
+              type="button"
+              className="action-item"
+              onClick={() => dispatchPetCommand('pet:random-action')}
+            >
+              <span className="action-item-label">来个动作</span>
+              <span className="action-item-hint">随机演一段</span>
+            </button>
+            <button
+              type="button"
+              className="action-item"
+              onClick={() => dispatchPetCommand('pet:whisper')}
+            >
+              <span className="action-item-label">碎碎念</span>
+              <span className="action-item-hint">让它嘀咕一句</span>
+            </button>
+          </div>
+          <div className="ai-empty-hint" style={{ marginTop: 8 }}>
+            Video-Pet 角色有 109 段命名动画(待机/玩耍/吃/过节/工作状态…),
+            随机演一段或点下面的清单都能播。
+          </div>
+        </>
+      )}
+
       {!hasHatchPet ? (
         <div className="ai-empty-hint">
-          当前角色是 Live2D 模型,动作走它自己的 motion 库(在调试面板里选)。
+          {hasVideoPet
+            ? 'Video-Pet 角色用命名动画(见上),没有 9 行精灵表。'
+            : '当前角色是 Live2D 模型,动作走它自己的 motion 库(在调试面板里选)。'}
           <br />
           切换到 Hatch-Pet 角色后,这里可以逐个点播动作。
         </div>
@@ -740,6 +810,16 @@ function DraggableActionPanel({
     </div>,
     document.body,
   );
+}
+
+/**
+ * 派发一个桌宠命令。
+ *
+ * 菜单 → 渲染端 → 桌宠宿主,走 window 事件(和已有的 pet:play-action 同一条路)。
+ * 命令名用 pet: 前缀,避免和别的自定义事件撞名。
+ */
+function dispatchPetCommand(command: string): void {
+  window.dispatchEvent(new CustomEvent(command));
 }
 
 interface SkillData {

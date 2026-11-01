@@ -1151,8 +1151,20 @@ export const HatchPetHost = forwardRef<CharacterHostHandle, Props>(function Hatc
       const r = el.getBoundingClientRect();
       onAnchor?.({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
     };
-    report();
-    const timer = window.setInterval(report, 500);
+    // ★ 只在位置真的变了才上报 —— 桌宠不动时不该每 500ms 触发一次
+    //   setState(整棵菜单树重渲染)。
+    let last = '';
+    const reportIfMoved = () => {
+      const el = containerRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const key = `${Math.round(r.left)},${Math.round(r.top)},${Math.round(r.width)}`;
+      if (key === last) return;
+      last = key;
+      onAnchor?.({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
+    };
+    reportIfMoved();
+    const timer = window.setInterval(reportIfMoved, 400);
     return () => window.clearInterval(timer);
   }, [onAnchor]);
 

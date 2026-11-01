@@ -154,6 +154,27 @@ export function shouldMirrorAnimation(
   return true;
 }
 
+/**
+ * 表情包的 URL。
+ *
+ * pet://video-pet/<角色文件夹名>/memes/<图名>.png
+ *
+ * 两段都要 encodeURIComponent —— 角色名和图名都是中文,
+ * 不编码的话路由匹配不上(实测会 404)。
+ *
+ * @param name  图名(= 文件名去扩展名)
+ * @param manifestId 角色 id(= 文件夹名)
+ * @param source builtin 还是 user —— 决定 pet:// 的 host
+ */
+export function videoPetMemeUrl(
+  name: string,
+  manifestId: string,
+  source: 'builtin' | 'user' = 'builtin',
+): string {
+  const host = source === 'user' ? 'video-pet-user' : 'video-pet';
+  return `pet://${host}/${encodeURIComponent(manifestId)}/memes/${encodeURIComponent(name)}.png`;
+}
+
 /** 睡觉动画套 —— 取第一套(本项目只做一套,不做多睡姿)。 */
 export function firstSleepSet(
   sleep: VideoPetAnimationConfig['sleep'] | undefined,

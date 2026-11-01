@@ -29,6 +29,12 @@ import {
   shouldMirrorAnimation,
   type VideoPetAnimationConfig,
 } from '../../shared/video-pet';
+import {
+  DEFAULT_SLEEP_REFUSE,
+  SleepMachine,
+  readMemePool,
+  type MemeEntry,
+} from '../../shared/video-pet-runtime';
 import type { CharacterHostHandle } from './character-host';
 
 interface Props {
@@ -86,13 +92,21 @@ export interface VideoPetHostHandle extends CharacterHostHandle {
   /** 当前正在播的动画名。 */
   currentAnimation?: () => string;
   /**
-   * 播一个**事件类**动画(碎碎念 / 工作状态 / 余额 / 睡觉)。
+   * 播一个**事件类**动画(碎碎念 / 工作状态 / 余额)。
    *
    * 事件池来自 dsh-config.json 的 animations.events.{whisper,workStatus,balance}。
    * 随机抽一段(避开当前正播的),播一次后回到 idle。
    * 池子为空 → 返回 false,调用方可以退化成「只弹气泡不换动画」。
    */
   playEventAnimation?: (kind: 'whisper' | 'workStatus' | 'balance') => boolean;
+  /** 让桌宠睡下。返回 false = 素材里没有睡觉动画。 */
+  sleep?: () => boolean;
+  /** 叫醒桌宠。 */
+  wake?: () => boolean;
+  /** 此刻是否在睡。 */
+  isSleeping?: () => boolean;
+  /** 表情包池(碎碎念配图用)。 */
+  memes?: () => MemeEntry[];
 }
 function loadUserScale(id: string): number {
   try {
@@ -193,6 +207,15 @@ function rollNextKind(weights: typeof DEFAULT_WEIGHTS): 'idle' | 'turn' | 'move'
   return 'action';
 }
 
+/**
+ * 点击音效的 URL。
+ *
+ * pet://video-pet/<角色名>/sound/<文件名>.wav
+ */
+export function clickSoundUrl(manifest: { id: string }, file: string): string {
+  return `pet://video-pet/${encodeURIComponent(manifest.id)}/sound/${encodeURIComponent(file)}`;
+}
+
 export const VideoPetHost = forwardRef<VideoPetHostHandle, Props>(function VideoPetHost(
   { character, roots, onLoaded, onError, onContextMenu, onScaleChange, onAnchorY, onAnchor, visible },
   ref,
@@ -285,7 +308,10 @@ export const VideoPetHost = forwardRef<VideoPetHostHandle, Props>(function Video
       const onReady = () => {
         // 迟到的加载 —— 期间已经换过源了,丢弃
         if (gen !== genRef.current) return;
-        back.loop = false;
+        // ★ loop 按「这一段要不要循环播」来定,不能一律 false:
+        //   睡觉的 loop 段是无限播的(once=false),播一次的话
+        //   ended 事件触发后画面就停在最后一帧(用户看着像卡住)。
+        back.loop = !once;
         back.currentTime = 0;
         const playPromise = back.play();
         if (playPromise && typeof playPromise.catch === 'function') {
@@ -347,8 +373,63 @@ export const VideoPetHost = forwardRef<VideoPetHostHandle, Props>(function Video
     [manifest, switchTo],
   );
 
+  /**
+   * 睡觉状态机。
+   *
+   * 上游 dsh-pet 的三段式:start(入睡过渡,播一次)→ loop(睡眠循环,无限播)→ end(醒来过渡,播一次)。
+   * 睡着时随机链停摆 —— 由 sleepMachine.consumeEnded() 接管动画结束判定。
+   */
+  const sleepMachineRef = useRef<SleepMachine | null>(null);
+  if (!sleepMachineRef.current) {
+    sleepMachineRef.current = new SleepMachine(
+      (name, once) => {
+        if (name && manifest.animations[name]) switchTo(name, once, once ? 'idle' : 'loop');
+      },
+      () => {
+        // 醒来后回到待机
+        const idlePool = manifest.categories.idle;
+        const first = idlePool[0];
+        if (first) switchTo(first, false, 'loop');
+      },
+    );
+  }
+
+  /** 让桌宠睡下。 */
+  const sleep = useCallback((): boolean => {
+    const set = firstSleepSet(manifest.categories.sleep);
+    if (!set) return false;
+    // 三段各挑一个候选(上游是「整套随机 → 段内随机」)
+    const pickOne = (arr: string[]) => arr[Math.floor(Math.random() * arr.length)];
+    const start = pickOne(set.start);
+    const loop = pickOne(set.loop);
+    const end = pickOne(set.end);
+    if (!start || !loop || !end) return false;
+    sleepMachineRef.current!.sleep({ start, loop, end });
+    return true;
+  }, [manifest.categories.sleep, switchTo]);
+
+  /** 叫醒桌宠。 */
+  const wake = useCallback((): boolean => {
+    // 入睡过渡中被叫醒 → 立刻切回待机(否则画面会停在「睡觉-开始」直到那段播完)
+    return sleepMachineRef.current!.wake(() => {
+      const idlePool = manifest.categories.idle;
+      const first = idlePool[0];
+      if (first) switchTo(first, false, 'loop');
+    });
+  }, [manifest.categories.idle, switchTo]);
+
+  /** 表情包池。 */
+  const memes = useCallback((): MemeEntry[] => {
+    return readMemePool(manifest.memeDescriptions, manifest.memes);
+  }, [manifest.memeDescriptions, manifest.memes]);
+
   /** 随机下一段。 */
   const pickNextAnimation = useCallback(() => {
+    // 睡着时不做随机动作
+    if (sleepMachineRef.current?.sleeping()) {
+      const loop = firstSleepSet(manifest.categories.sleep)?.loop?.[0];
+      return loop ?? '';
+    }
     const kind = rollNextKind(DEFAULT_WEIGHTS);
     if (kind === 'idle') {
       const pool = manifest.categories.idle;
@@ -373,6 +454,11 @@ export const VideoPetHost = forwardRef<VideoPetHostHandle, Props>(function Video
   // ---- 动画结束处理 ----
   useEffect(() => {
     const handleEnded = () => {
+      // 睡觉时,动画结束归睡觉状态机管(切 loop / 收尾),不推进随机链
+      if (sleepMachineRef.current?.sleeping()) {
+        sleepMachineRef.current.consumeEnded();
+        return;
+      }
       const action = endedActionRef.current;
       const next = pickNextAnimation();
       if (action === 'loop') {
@@ -461,6 +547,70 @@ export const VideoPetHost = forwardRef<VideoPetHostHandle, Props>(function Video
     return () => window.removeEventListener('pet:state', onState as EventListener);
   }, [manifest, switchTo]);
 
+  // ---- 点击音效 ----
+  //
+  // 上游 dsh-pet:点一下宠物播一声内置音效(click-duck.wav,音量固定 0.5),
+  // 100ms 内的连续点击只响一次(多开时也不会叠成一片)。
+  //
+  // 用 WebAudio 直接解 wav —— 不需要 <audio> 元素,也没有加载延迟。
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const lastClickSoundAtRef = useRef(0);
+
+  const playClickSound = useCallback(() => {
+    const file = manifest.clickSound;
+    if (!file) return;
+    const now = Date.now();
+    // 100ms 内的连续点击只响一次
+    if (now - lastClickSoundAtRef.current < 100) return;
+    lastClickSoundAtRef.current = now;
+
+    try {
+      const ctx = audioCtxRef.current ?? new AudioContext();
+      audioCtxRef.current = ctx;
+      void fetch(clickSoundUrl(manifest, file))
+        .then((r) => r.arrayBuffer())
+        .then((buf) => ctx.decodeAudioData(buf))
+        .then((audio) => {
+          const src = ctx.createBufferSource();
+          src.buffer = audio;
+          const gain = ctx.createGain();
+          gain.gain.value = 0.5;
+          src.connect(gain).connect(ctx.destination);
+          src.start();
+        })
+        .catch(() => {
+          /* 音效失败不影响别的 */
+        });
+    } catch {
+      /* 浏览器不支持 WebAudio 就跳过 */
+    }
+  }, [manifest]);
+
+  // ---- 菜单命令(睡觉 / 起来 / 随机动作)----
+  //
+  // 上游 dsh-pet 的右键菜单有「睡觉」「起来」,点它睡下、点一下或右键叫醒。
+  // 这里用 window 事件跟菜单通信(菜单在 document.body,宿主在 app 根里)。
+  useEffect(() => {
+    const onSleep = () => {
+      sleep();
+    };
+    const onWake = () => {
+      wake();
+    };
+    const onRandom = () => {
+      const name = pickRandomAction(manifest.categories.categories);
+      if (name && manifest.animations[name]) switchTo(name, true, 'idle');
+    };
+    window.addEventListener('pet:sleep', onSleep);
+    window.addEventListener('pet:wake', onWake);
+    window.addEventListener('pet:random-action', onRandom);
+    return () => {
+      window.removeEventListener('pet:sleep', onSleep);
+      window.removeEventListener('pet:wake', onWake);
+      window.removeEventListener('pet:random-action', onRandom);
+    };
+  }, [manifest.animations, manifest.categories.categories, sleep, wake, switchTo]);
+
   // ---- 朝向镜像 ----
   useEffect(() => {
     const front = frontRef.current;
@@ -502,8 +652,20 @@ export const VideoPetHost = forwardRef<VideoPetHostHandle, Props>(function Video
       const r = el.getBoundingClientRect();
       onAnchor?.({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
     };
-    report();
-    const timer = window.setInterval(report, 500);
+    // ★ 只在位置真的变了才上报 —— 桌宠不动时不该每 500ms 触发一次
+    //   setState(整棵菜单树重渲染)。
+    let last = '';
+    const reportIfMoved = () => {
+      const el = containerRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const key = `${Math.round(r.left)},${Math.round(r.top)},${Math.round(r.width)}`;
+      if (key === last) return;
+      last = key;
+      onAnchor?.({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
+    };
+    reportIfMoved();
+    const timer = window.setInterval(reportIfMoved, 400);
     return () => window.clearInterval(timer);
   }, [onAnchor]);
 
@@ -674,7 +836,8 @@ export const VideoPetHost = forwardRef<VideoPetHostHandle, Props>(function Video
         const clicks = manifest.categories.clicks;
         if (clicks.length) switchTo(clicks[Math.floor(Math.random() * clicks.length)], true, 'idle');
       } else {
-        // 纯点击 → 播点击回应
+        // 纯点击 → 播点击回应 + 音效
+        playClickSound();
         const clicks = manifest.categories.clicks;
         if (clicks.length) switchTo(clicks[Math.floor(Math.random() * clicks.length)], true, 'idle');
       }
@@ -697,7 +860,7 @@ export const VideoPetHost = forwardRef<VideoPetHostHandle, Props>(function Video
       canvas.removeEventListener('contextmenu', onCtx);
       if (rafId != null) cancelAnimationFrame(rafId);
     };
-  }, [character.id, manifest.categories.clicks, manifest.categories.drag, applyPosToDom, switchTo, scale]);
+  }, [character.id, manifest.categories.clicks, manifest.categories.drag, applyPosToDom, switchTo, scale, playClickSound]);
 
   // ---- 暴露给外部(handle) ----
   useImperativeHandle(
@@ -722,8 +885,12 @@ export const VideoPetHost = forwardRef<VideoPetHostHandle, Props>(function Video
       playAnimation,
       currentAnimation: () => currentAnimRef.current,
       playEventAnimation,
+      sleep,
+      wake,
+      isSleeping: () => sleepMachineRef.current?.sleeping() ?? false,
+      memes,
     }),
-    [character.id, scale, playAnimation, playEventAnimation],
+    [character.id, scale, playAnimation, playEventAnimation, sleep, wake, memes],
   );
 
   const videoStyle: React.CSSProperties = {

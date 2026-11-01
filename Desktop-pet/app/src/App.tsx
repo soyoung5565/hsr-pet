@@ -3,6 +3,8 @@ import type { CharacterIndex, Live2DCharacter, HatchPetCharacter, VideoPetCharac
 import { CharacterHost, type CharacterHostHandle } from './render/character-host';
 import { HatchPetHost } from './render/hatch-pet-host';
 import { VideoPetHost } from './render/video-pet-host';
+import { pickWhisperMeme, type MemeEntry } from '../shared/video-pet-runtime';
+import { videoPetMemeUrl } from '../shared/video-pet';
 import { PetMenu } from './ui/pet-menu';
 import { ChatBubble } from './ui/chat-bubble';
 import { PetSpeechBubble } from './ui/pet-speech-bubble';
@@ -73,7 +75,7 @@ export default function App() {
    *  → 这里只声明 ref,赋值放到 characters 定义之后。 */
   const charactersRef = useRef<ActiveCharacter[]>([]);
   /** 主动搭话的一句话气泡 */
-  const [speech, setSpeech] = useState<{ text: string; durationMs: number } | null>(null);
+  const [speech, setSpeech] = useState<{ text: string; durationMs: number; imageUrl?: string | null } | null>(null);
   /** 当前角色名(ref 传给主动搭话 hook —— hook 必须在顶层调,而 active 在后面才算出) */
   const activeNameRef = useRef<string>('');
 
@@ -233,7 +235,18 @@ export default function App() {
     // 免得大肥鱼说话时像换了个人。没有则回退到设置面板里的 characterPersonas。
     videoPetPersona:
       active && active.type === 'video-pet' ? active.manifest.persona ?? null : null,
-    showHint: (msg, duration) => setSpeech({ text: msg, durationMs: duration }),
+    showHint: (msg, duration, imageUrl) =>
+      setSpeech({ text: msg, durationMs: duration, imageUrl: imageUrl ?? null }),
+    // 表情包:碎碎念随机抽一张(上游 dsh-pet 的策略 —— 没有语境可选)。
+    pickMeme: () => {
+      // 只有 Video-Pet 角色有表情包(素材包里带 memes/)
+      if (!active || active.type !== 'video-pet') return null;
+      const host = hostRef.current as { memes?: () => MemeEntry[] } | null;
+      const pool = host?.memes?.() ?? [];
+      const picked = pickWhisperMeme(pool);
+      if (!picked) return null;
+      return videoPetMemeUrl(picked.name, active.manifest.id, active.source);
+    },
     // 说话时联动事件动画(碎碎念动画来自素材包的 animations.events.whisper)。
     // Video-Pet 角色才支持 —— Live2D/Hatch-Pet 没有「按事件换动画」的概念。
     onSpeak: (kind) => {
@@ -396,6 +409,7 @@ export default function App() {
         text={speech?.text ?? ''}
         anchorY={anchorY}
         durationMs={speech?.durationMs ?? 4000}
+        imageUrl={speech?.imageUrl ?? null}
       />
 
       <PetMenu
