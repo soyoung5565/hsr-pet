@@ -23,8 +23,21 @@ import {
 interface Args {
   characterId: string;
   characterName: string;
+  /**
+   * Video-Pet 自带的人设(dsh-pet 的 whisperPrompt)。
+   *
+   * 为什么单独一条通道:Video-Pet 角色的 persona 写在素材包自己的 dsh-config.json 里,
+   * 不用用户在设置面板手填 —— 大肥鱼天生就是「Q版蓝发小女仆」那个性格。
+   * 有它就用它(优先),没有才回退到 characterPersonas 那套通用机制。
+   */
+  videoPetPersona?: string | null;
   /** 在桌宠头顶气泡显示一段文字,duration 毫秒后自动消失。 */
   showHint: (msg: string, duration: number) => void;
+  /**
+   * 说话那一刻的回调 —— 宿主用它触发事件动画(如碎碎念动画)。
+   * 不传就不联动动画,只弹气泡。
+   */
+  onSpeak?: (kind: 'whisper') => void;
   /**
    * 取「用户空闲了多久」(ms)。
    *
@@ -66,6 +79,24 @@ async function resolvePersona(name: string): Promise<CharacterPersona | null> {
     // ignore
   }
   return resolveDefaultCharacterPersona(name);
+}
+
+/**
+ * 组装 Video-Pet 的人设 system prompt。
+ *
+ * 参考 dsh-pet 的做法:人设正文 + 自动追加「你的名字是 X」+ 当前时间背景。
+ * 时间背景让模型知道现在几点/什么节日 —— 碎碎念能说出「该吃午饭了」这种话。
+ */
+function buildVideoPetSystemPrompt(persona: string, name: string, now: Date): string {
+  const hour = now.getHours();
+  const period = hour < 5 ? '凌晨' : hour < 11 ? '早上' : hour < 13 ? '中午' : hour < 18 ? '下午' : hour < 23 ? '晚上' : '深夜';
+  const week = ['日', '一', '二', '三', '四', '五', '六'][now.getDay()];
+  const date = `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日 周${week} ${period}`;
+  return (
+    `${persona}\n\n` +
+    `你的名字是「${name}」。\n` +
+    `现在是 ${date}。\n`
+  );
 }
 
 /**
@@ -171,9 +202,20 @@ function buildTopic(now: Date, minutesSinceActivity: number): string {
 export function usePetChatter(args: Args): void {
   const { characterId, characterName, showHint, getIdleMs } = args;
 
+  // Video-Pet 人设放 ref —— 它随角色切换变化,但不该触发整个 effect 重跑
+  // (重跑会重置调度计时器,导致切角色后碎碎念要重新等一个周期)。
+  const videoPetPersonaRef = useRef(args.videoPetPersona ?? null);
+  useEffect(() => {
+    videoPetPersonaRef.current = args.videoPetPersona ?? null;
+  }, [args.videoPetPersona]);
+
   const showHintRef = useRef(showHint);
   useEffect(() => {
     showHintRef.current = showHint;
+  });
+  const onSpeakRef = useRef(args.onSpeak);
+  useEffect(() => {
+    onSpeakRef.current = args.onSpeak;
   });
   const getIdleMsRef = useRef(getIdleMs);
   useEffect(() => {
@@ -244,8 +286,15 @@ export function usePetChatter(args: Args): void {
       const idleReliable = idleMs >= 0;
       if (cfg.onlyWhenIdle && idleReliable && idleMs < 3 * 60_000) return;
 
-      const persona = await resolvePersona(characterName);
-      const sys = buildCharacterSystemPrompt(persona);
+      // 人设优先级:Video-Pet 素材自带人设 > 设置面板里配的 persona
+      const vpPersona = videoPetPersonaRef.current;
+      let sys: string | null;
+      if (vpPersona && vpPersona.trim()) {
+        sys = buildVideoPetSystemPrompt(vpPersona.trim(), characterName, now);
+      } else {
+        const persona = await resolvePersona(characterName);
+        sys = buildCharacterSystemPrompt(persona);
+      }
       if (!sys) return;
 
       const minutes = idleReliable ? Math.floor(idleMs / 60_000) : 0;
@@ -263,6 +312,9 @@ export function usePetChatter(args: Args): void {
       if (signal.disposed) return;
       lastSpokeAt = Date.now();
       if (line) {
+        // 先起动画再弹气泡 —— 动画与气泡是两个独立的东西,顺序不影响,
+        // 但先起动画能让「说话」和「嘴在动」对上,观感更自然。
+        onSpeakRef.current?.('whisper');
         showHintRef.current(line, BUBBLE_MS);
       }
     };

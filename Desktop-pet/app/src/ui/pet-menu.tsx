@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef, useState } from 'react';
+﻿import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   loadVoskModel,
@@ -39,6 +39,12 @@ interface Props {
   open: boolean;
   /** 关闭菜单(点击外部 / Esc) */
   onClose: () => void;
+  /**
+   * 桌宠在窗口里的中心位置 —— 菜单贴着它弹。
+   * ★ 之前菜单按「窗口中心在屏幕哪半边」定位,但桌宠窗口是全屏的,
+   *   窗口中心永远在屏幕中间 → 菜单永远固定在屏幕左侧(实测反馈的问题)。
+   */
+  petPos?: { x: number; y: number } | null;
   /** 当前角色清单(Live2D + Hatch-Pet) */
   characters: MenuCharacter[];
   activeId: string | undefined;
@@ -62,7 +68,7 @@ interface Props {
   onRenderStyle: (s: RenderStyle) => void;
 }
 
-type Panel = 'root' | 'characters' | 'size' | 'ai' | 'settings' | 'action';
+type Panel = 'root' | 'characters' | 'size' | 'ai' | 'settings' | 'action' | 'douyin';
 
 function characterCategory(c: MenuCharacter): string {
   const direct = c.category?.trim();
@@ -201,6 +207,7 @@ export function PetMenu({
   open,
   onClose,
   characters,
+  petPos,
   activeId,
   activeCharacterName,
   onPick,
@@ -224,15 +231,58 @@ export function PetMenu({
     return () => window.removeEventListener('pet:open-settings', onOpenSettings);
   }, []);
 
-  // 每次打开重置到根面板,并按窗口在屏幕中的位置决定菜单弹出方向
+  // 每次打开重置到根面板,并按桌宠位置决定菜单往哪边弹
   useEffect(() => {
     if (!open) return;
     setPanel('root');
-    // 窗口中心在屏幕右半边 → 菜单从模型左侧弹出;否则右侧
-    const winCenterX = window.screenX + window.outerWidth / 2;
-    const screenHalf = window.screen.availWidth / 2;
-    setSide(winCenterX > screenHalf ? 'left' : 'right');
-  }, [open]);
+    // ★ 桌宠在窗口右半边 → 菜单从它左侧弹出;否则右侧。
+    //   用桌宠的真实位置,不是窗口中心 —— 窗口是全屏的,窗口中心没意义。
+    const petX = petPos?.x ?? window.innerWidth / 2;
+    setSide(petX > window.innerWidth / 2 ? 'left' : 'right');
+  }, [open, petPos]);
+
+  /**
+   * 菜单贴桌宠定位。
+   *
+   * ★ 必须用 inline style 覆盖 CSS 的 left/right/top:
+   *   CSS 里 .pet-menu--left { left: 12px } / .pet-menu--right { right: 352px }
+   *   是给「按屏幕左右半边定位」的旧逻辑用的 —— 那套逻辑在**全屏桌宠窗口**下
+   *   永远落在屏幕左边(实测用户反馈:菜单按钮固定在屏幕左侧,不在桌宠身边)。
+   *
+   * 现在改成:菜单贴在桌宠旁边 —— 桌宠在右边就弹左边,反之亦然。
+   */
+  useEffect(() => {
+    if (!open || !petPos) return;
+    const el = rootRef.current;
+    if (!el) return;
+
+    // 先量菜单自己的尺寸
+    const rect = el.getBoundingClientRect();
+    const w = rect.width || 48;
+    const h = rect.height || 496;
+
+    // 桌宠在屏幕右半边 → 菜单放它左边;否则放右边
+    const petOnRight = petPos.x > window.innerWidth / 2;
+    const gap = 16;
+
+    let left: number;
+    if (petOnRight) {
+      left = petPos.x - w - gap;
+    } else {
+      left = petPos.x + gap;
+    }
+    // 垂直方向:与桌宠大致对齐(菜单比桌宠高,往上偏一点)
+    let top = petPos.y - h / 2;
+
+    // 边界钳制 —— 至少留 12px 在屏内
+    left = Math.max(12, Math.min(window.innerWidth - w - 12, left));
+    top = Math.max(12, Math.min(window.innerHeight - h - 12, top));
+
+    el.style.left = `${left}px`;
+    el.style.top = `${top}px`;
+    el.style.right = 'auto';
+    el.style.transform = 'none';
+  }, [open, petPos]);
 
   // 点击菜单外 / Esc 关闭。注意:子面板(characters/size/ai/settings)用 createPortal
   // 挂到 document.body,DOM 上不再是 .pet-menu 的后代,所以 rootRef.contains 判不到。
@@ -262,7 +312,7 @@ export function PetMenu({
 
   return (
     <div
-      className={'pet-menu pet-menu--' + side}
+      className={'pet-menu pet-menu--' + side + ' pet-menu--anchored'}
       ref={rootRef}
       onContextMenu={(e) => e.preventDefault()}
     >
@@ -282,6 +332,12 @@ export function PetMenu({
             onClick={() => setPanel('action')}
           />
           <MenuBtn label="AI" icon={<MenuIcon name="bot" />} color="#c5e1a5" onClick={() => setPanel('ai')} />
+          <MenuBtn
+            label="抖音"
+            icon={<MenuIcon name="play" />}
+            color="#f77fbe"
+            onClick={() => setPanel('douyin')}
+          />
           <MenuBtn
             label={chatOpen ? '隐藏' : '对话'}
             icon={<MenuIcon name="chat" />}
@@ -359,7 +415,135 @@ export function PetMenu({
           hasHatchPet={characters.some((c) => c.id === activeId && c.type === 'hatch-pet')}
         />
       )}
+
+      {panel === 'douyin' && (
+        <DraggableDouyinPanel onBack={() => setPanel('root')} />
+      )}
     </div>
+  );
+}
+
+/**
+ * 「抖音」面板 —— 让桌宠自己刷抖音。
+ *
+ * 面板只做三件事:开浏览器、开始/停止观看、看当前状态。
+ * 真正的观看循环在主进程(electron/douyin-controller.ts),画面/音频/判断全走 MiniMax。
+ */
+function DraggableDouyinPanel({ onBack }: { onBack: () => void }) {
+  const [state, setState] = useState<{
+    browserReady: boolean;
+    watched: number;
+    elapsed: number;
+    current: { title: string; understanding: string } | null;
+    lastError?: string;
+  } | null>(null);
+  const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const refresh = useCallback(async () => {
+    const s = await window.petAPI?.douyinGetState?.();
+    if (s) setState(s as never);
+  }, []);
+
+  useEffect(() => {
+    void refresh();
+    const t = window.setInterval(() => void refresh(), 3000);
+    return () => window.clearInterval(t);
+  }, [refresh]);
+
+  const run = async (label: string, fn: () => Promise<unknown>) => {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const r = (await fn()) as { ok?: boolean; error?: string } | undefined;
+      if (r && r.ok === false) setMsg({ kind: 'err', text: r.error ?? `${label}失败` });
+      else setMsg({ kind: 'ok', text: `${label}成功` });
+      await refresh();
+    } catch (e) {
+      setMsg({ kind: 'err', text: `${label}失败:${e instanceof Error ? e.message : String(e)}` });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const { panelRef, panelStyle, titleProps } = useDraggablePanel();
+
+  return createPortal(
+    <div
+      className="pet-menu-panel"
+      data-pet-menu-panel="true"
+      ref={panelRef}
+      style={panelStyle}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className="pet-menu-title" {...titleProps}>
+        <button className="back-btn" onClick={onBack}>
+          ←
+        </button>
+        <span>抖音</span>
+      </div>
+
+      <div className="ai-empty-hint">
+        桌宠用 MiniMax 看画面、听声音,自己决定要不要继续看。
+        <br />
+        第一次点「打开抖音」要在弹出的 Edge 里登录一次,之后会记住。
+      </div>
+
+      <div className="action-grid">
+        <button
+          type="button"
+          className="action-item"
+          disabled={busy}
+          onClick={() => void run('打开抖音', () => window.petAPI!.douyinStart!())}
+        >
+          <span className="action-item-label">打开抖音</span>
+          <span className="action-item-hint">起专用 Edge,进推荐流</span>
+        </button>
+        <button
+          type="button"
+          className="action-item"
+          disabled={busy || !state?.browserReady}
+          onClick={() => void run('开始观看', () => window.petAPI!.douyinWatch!())}
+        >
+          <span className="action-item-label">开始观看</span>
+          <span className="action-item-hint">让桌宠自己刷</span>
+        </button>
+        <button
+          type="button"
+          className="action-item"
+          disabled={busy || !state?.browserReady}
+          onClick={() => void run('换下一条', () => window.petAPI!.douyinNext!())}
+        >
+          <span className="action-item-label">换一条</span>
+          <span className="action-item-hint">跳过当前视频</span>
+        </button>
+        <button
+          type="button"
+          className="action-item"
+          disabled={busy}
+          onClick={() => void run('关闭', () => window.petAPI!.douyinStop!())}
+        >
+          <span className="action-item-label">关闭</span>
+          <span className="action-item-hint">收掉专用 Edge</span>
+        </button>
+      </div>
+
+      {state && (
+        <div className="ai-empty-hint" style={{ marginTop: 10 }}>
+          浏览器:{state.browserReady ? '已就绪' : '未启动'} · 已看 {state.watched} 条
+          {state.current?.title ? ` · 当前:${state.current.title.slice(0, 40)}` : ''}
+        </div>
+      )}
+      {state?.lastError && (
+        <div className="ai-empty-hint" style={{ color: '#ff8a80' }}>{state.lastError}</div>
+      )}
+      {msg && (
+        <div className="ai-empty-hint" style={{ color: msg.kind === 'ok' ? '#9be7a5' : '#ff8a80' }}>
+          {msg.text}
+        </div>
+      )}
+    </div>,
+    document.body,
   );
 }
 
@@ -4434,7 +4618,7 @@ function MenuBtn({
 
 /** 极简线条图标 — 主菜单按钮专用,描边 currentColor,大小靠 .menu-btn .emoji 容器约束。
  *  与 chat-bubble 的 ToolIcon 一致风格,但每个图标单独定义,viewBox 统一 24×24。 */
-function MenuIcon({ name }: { name: 'swap' | 'ruler' | 'bot' | 'chat' | 'gear' | 'moon' | 'close' | 'action' }) {
+function MenuIcon({ name }: { name: 'swap' | 'ruler' | 'bot' | 'chat' | 'gear' | 'moon' | 'close' | 'action' | 'play' }) {
   const common = {
     width: 20,
     height: 20,
@@ -4456,6 +4640,14 @@ function MenuIcon({ name }: { name: 'swap' | 'ruler' | 'bot' | 'chat' | 'gear' |
           <path d="M4 7l3-3 3 3" />
           <path d="M17 20V6" />
           <path d="M14 17l3 3 3-3" />
+        </svg>
+      );
+    case 'play':
+      // 播放三角 — 抖音
+      return (
+        <svg {...common}>
+          <path d="M8 5.5v13l11-6.5-11-6.5z" />
+          <path d="M4 5v14" />
         </svg>
       );
     case 'ruler':

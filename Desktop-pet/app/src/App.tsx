@@ -14,13 +14,27 @@ import type { VoskState } from './render/vosk-shared';
 /** 当前外层支持的角色类型(sprite 还没启用)。 */
 type ActiveCharacter = Live2DCharacter | HatchPetCharacter | VideoPetCharacter;
 
+/**
+ * 挑启动时的默认角色。
+ *
+ * ★ 优先级:Video-Pet(大肥鱼)> 用户指定的 > Hatch-Pet > Live2D
+ *   大肥鱼是 dsh-pet 的默认形象和人设(蓝发小女仆,109 段动画),
+ *   本轮改造就是以它为主角 —— 所以它排第一。
+ *   用户在设置里指定过 defaultCharacterId 就听用户的。
+ */
 function pickStartupCharacterId(
   idx: CharacterIndex,
   preferredId?: string | null,
 ): string | null {
-  const all = [...idx.live2d, ...idx.hatchPet];
+  const all = [...idx.videoPet, ...idx.live2d, ...idx.hatchPet];
   if (preferredId && all.some((c) => c.id === preferredId)) return preferredId;
-  return idx.hatchPet[0]?.id ?? idx.live2d[0]?.id ?? null;
+  // 优先大肥鱼 —— 首个 video-pet 角色
+  return (
+    idx.videoPet[0]?.id ??
+    idx.hatchPet[0]?.id ??
+    idx.live2d[0]?.id ??
+    null
+  );
 }
 
 /**
@@ -36,6 +50,12 @@ export default function App() {
   const [scale, setScale] = useState(1);
   /** 模型腰线 Y(CSS 像素),用于定位聊天气泡 */
   const [anchorY, setAnchorY] = useState<number | null>(null);
+  /**
+   * 桌宠在窗口里的中心位置 —— 菜单贴着它弹。
+   * ★ 之前菜单是按「窗口中心在屏幕哪半边」定位的,但桌宠窗口是**全屏**的,
+   *   窗口中心永远在屏幕中间 → 菜单永远固定在屏幕左侧,跟桌宠不在一处。
+   */
+  const [petPos, setPetPos] = useState<{ x: number; y: number } | null>(null);
   /** 对话面板是否可见(默认收起,由菜单 💬 按钮打开) */
   const [chatOpen, setChatOpen] = useState(false);
   /** 「只打开对话」模式 — 隐藏模型 canvas,只留聊天气泡。
@@ -179,6 +199,18 @@ export default function App() {
   const active = characters.find((c) => c.id === activeId) ?? characters[0];
   activeNameRef.current = active?.name ?? '';
 
+  // ---- 抖音刷视频:主进程推「看完一条」的话过来 → 用气泡显示 ----
+  useEffect(() => {
+    const off = window.petAPI?.onDouyinWatched?.((payload) => {
+      if (!payload?.text) return;
+      setSpeech({ text: payload.text, durationMs: 6000 });
+    });
+    return () => {
+      // off() 返回的是 ipcRenderer 本身(不是 void),这里忽略返回值
+      off?.();
+    };
+  }, []);
+
   // ---- 桌宠主动行为(时段问候 / 整点报时 / 节假日 / 记忆提醒 / 无操作搭话)----
   // ★ 放在 App 层(应用级行为),Live2D 和 hatch-pet 两种角色一视同仁。
   //   (之前只挂在 Live2D 的 character-host 上 → hatch-pet 永远不会主动说话)
@@ -197,7 +229,17 @@ export default function App() {
   usePetChatter({
     characterId: active?.id ?? '',
     characterName: active?.name ?? '',
+    // Video-Pet 角色自带人设(写在素材包的 dsh-config.json 里)—— 优先用它,
+    // 免得大肥鱼说话时像换了个人。没有则回退到设置面板里的 characterPersonas。
+    videoPetPersona:
+      active && active.type === 'video-pet' ? active.manifest.persona ?? null : null,
     showHint: (msg, duration) => setSpeech({ text: msg, durationMs: duration }),
+    // 说话时联动事件动画(碎碎念动画来自素材包的 animations.events.whisper)。
+    // Video-Pet 角色才支持 —— Live2D/Hatch-Pet 没有「按事件换动画」的概念。
+    onSpeak: (kind) => {
+      const host = hostRef.current as { playEventAnimation?: (k: string) => boolean } | null;
+      host?.playEventAnimation?.(kind);
+    },
     // 问系统要真实的空闲时长(主进程用 Windows GetLastInputInfo 探测)。
     // 探测失败时返回 -1 → 视为"不可靠" → 放宽 idle 判定,不因为探测失败就永远不说话。
     getIdleMs: async () => {
@@ -304,6 +346,7 @@ export default function App() {
           onContextMenu={handleContextMenu}
           onScaleChange={setScale}
           onAnchorY={setAnchorY}
+          onAnchor={setPetPos}
           visible={!modelHidden}
         />
       )}
@@ -317,6 +360,7 @@ export default function App() {
           onContextMenu={handleContextMenu}
           onScaleChange={setScale}
           onAnchorY={setAnchorY}
+          onAnchor={setPetPos}
           visible={!modelHidden}
         />
       )}
@@ -330,6 +374,7 @@ export default function App() {
           onContextMenu={handleContextMenu}
           onScaleChange={setScale}
           onAnchorY={setAnchorY}
+          onAnchor={setPetPos}
           visible={!modelHidden}
         />
       )}
@@ -356,6 +401,7 @@ export default function App() {
       <PetMenu
         open={menuOpen}
         onClose={() => setMenuOpen(false)}
+        petPos={petPos}
         characters={characters}
         activeId={active?.id}
         activeCharacterName={active?.name ?? null}

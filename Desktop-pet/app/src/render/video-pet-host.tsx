@@ -40,6 +40,8 @@ interface Props {
   onContextMenu?: (e: { clientX: number; clientY: number }) => void;
   onScaleChange?: (scale: number) => void;
   onAnchorY?: (y: number) => void;
+  /** 桌宠在窗口里的位置(中心点,窗口坐标)—— 菜单要贴着它弹,而不是贴屏幕边。 */
+  onAnchor?: (pos: { x: number; y: number }) => void;
   visible?: boolean;
 }
 
@@ -59,6 +61,19 @@ const CHARACTER_WIDTH_RATIO = 462 / VIDEO_W;
 /** 角色在画布里的垂直锚点 —— 脚底位置(约在画布 85% 处,绿幕规范里的脚底线)。 */
 const CHARACTER_FOOT_RATIO = 0.85;
 
+/**
+ * 角色在 640×360 画布里的实际占位(实测自 alpha bbox)。
+ *
+ * 视频画布是 16:9,但角色只占中间一小块 —— 四周大量留白。
+ * 这几个比例用来:
+ *   ① 命中检测的兜底区域(alpha 检测不可用时)
+ *   ② 位置计算:让「角色脚底」而不是「容器中心」贴地
+ */
+const CHARACTER_WIDTH_IN_VIDEO = 0.4;   // 角色宽约占画布 40%(实测 204/640)
+const CHARACTER_HEIGHT_IN_VIDEO = 0.75; // 角色高约占画布 75%(实测 267/360)
+const CHARACTER_LEFT_RATIO = 0.3;       // 角色左边距约占画布 30%(实测 215/640)
+const CHARACTER_TOP_RATIO = 0.1;        // 角色上边距约占画布 10%(实测 62/360)
+
 const SCALE_KEY_PREFIX = 'pet:scale:';
 const POS_KEY_PREFIX = 'pet:position:';
 
@@ -70,6 +85,14 @@ export interface VideoPetHostHandle extends CharacterHostHandle {
   playAnimation?: (name: string, once?: boolean) => void;
   /** 当前正在播的动画名。 */
   currentAnimation?: () => string;
+  /**
+   * 播一个**事件类**动画(碎碎念 / 工作状态 / 余额 / 睡觉)。
+   *
+   * 事件池来自 dsh-config.json 的 animations.events.{whisper,workStatus,balance}。
+   * 随机抽一段(避开当前正播的),播一次后回到 idle。
+   * 池子为空 → 返回 false,调用方可以退化成「只弹气泡不换动画」。
+   */
+  playEventAnimation?: (kind: 'whisper' | 'workStatus' | 'balance') => boolean;
 }
 function loadUserScale(id: string): number {
   try {
@@ -90,7 +113,42 @@ function saveUserScale(id: string, s: number): void {
   }
 }
 
-function loadModelPos(id: string): { x: number; y: number } | null {
+/**
+ * 把桌宠位置钳制在屏幕内。
+ *
+ * ★ 为什么必须钳制(实测踩过):
+ *   桌宠容器是 462×260,但角色只占容器中间 40%×75%(四周大量留白)。
+ *   如果按**容器**算边界,角色本身会跑到屏幕外 —— 实测保存的位置是
+ *   (1660, 1033),而屏幕只有 1708×1020,角色整个掉到屏幕下方,用户看不见也点不到。
+ *
+ * 所以这里按**角色实际占位**算:容器左上 + 角色在容器里的偏移。
+ */
+function clampPetPos(
+  pos: { x: number; y: number },
+  scale: number,
+): { x: number; y: number } {
+  const charWidth = VIDEO_W * CHARACTER_WIDTH_RATIO * scale;
+  const charHeight = VIDEO_H * CHARACTER_HEIGHT_IN_VIDEO * scale;
+  const containerW = VIDEO_W * CHARACTER_WIDTH_RATIO * scale;
+  const containerH = VIDEO_H * (CHARACTER_HEIGHT_IN_VIDEO / CHARACTER_FOOT_RATIO) * scale;
+
+  // 角色中心相对容器中心的偏移
+  const offX = (CHARACTER_LEFT_RATIO + CHARACTER_WIDTH_IN_VIDEO / 2 - 0.5) * containerW;
+  const offY = (CHARACTER_TOP_RATIO + CHARACTER_HEIGHT_IN_VIDEO / 2 - 0.5) * containerH;
+
+  // 角色中心允许的范围(留 20px 边距)
+  const margin = 20;
+  const minCx = margin + charWidth / 2;
+  const maxCx = Math.max(minCx, window.innerWidth - margin - charWidth / 2);
+  const minCy = margin + charHeight / 2;
+  const maxCy = Math.max(minCy, window.innerHeight - margin - charHeight / 2);
+
+  const cx = Math.min(Math.max(minCx, pos.x + offX), maxCx);
+  const cy = Math.min(Math.max(minCy, pos.y + offY), maxCy);
+  return { x: cx - offX, y: cy - offY };
+}
+
+function loadModelPos(id: string, scale: number): { x: number; y: number } | null {
   try {
     const raw = localStorage.getItem(POS_KEY_PREFIX + id);
     if (!raw) return null;
@@ -101,7 +159,7 @@ function loadModelPos(id: string): { x: number; y: number } | null {
       typeof obj?.y === 'number' &&
       Number.isFinite(obj.y)
     ) {
-      return { x: obj.x, y: obj.y };
+      return clampPetPos({ x: obj.x, y: obj.y }, scale);
     }
     return null;
   } catch {
@@ -136,12 +194,22 @@ function rollNextKind(weights: typeof DEFAULT_WEIGHTS): 'idle' | 'turn' | 'move'
 }
 
 export const VideoPetHost = forwardRef<VideoPetHostHandle, Props>(function VideoPetHost(
-  { character, roots, onLoaded, onError, onContextMenu, onScaleChange, onAnchorY, visible },
+  { character, roots, onLoaded, onError, onContextMenu, onScaleChange, onAnchorY, onAnchor, visible },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const videoARef = useRef<HTMLVideoElement | null>(null);
   const videoBRef = useRef<HTMLVideoElement | null>(null);
+  /**
+   * 命中检测用的隐藏 canvas —— 把 video 画上去读 alpha。
+   *
+   * ★ 为什么必须做这个:
+   *   桌宠窗口是**全屏**的透明置顶窗(为了能 roam/漫游)。
+   *   如果不做像素命中检测,整个屏幕都被这个窗口吃掉 ——
+   *   用户点任何别的应用都没反应(实测踩过)。
+   *   所以要逐帧判断「鼠标下���有没有角色像素」,没有就 setIgnoreMouseEvents(true) 穿透。
+   */
+  const hitCanvasRef = useRef<HTMLCanvasElement | null>(null);
   /** 当前在前台播的 video 元素 */
   const frontRef = useRef<HTMLVideoElement | null>(null);
   /** 换源世代号 —— 迟到的加载结果要丢弃 */
@@ -181,7 +249,7 @@ export const VideoPetHost = forwardRef<VideoPetHostHandle, Props>(function Video
   // ---- 位置 ----
   const posRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   if (posRef.current.x === 0 && posRef.current.y === 0) {
-    posRef.current = loadModelPos(character.id) ?? {
+    posRef.current = loadModelPos(character.id, scale) ?? {
       x: window.innerWidth / 2,
       y: window.innerHeight / 2 + 50,
     };
@@ -251,6 +319,32 @@ export const VideoPetHost = forwardRef<VideoPetHostHandle, Props>(function Video
       switchTo(name, once, once ? 'idle' : 'loop');
     },
     [manifest.animations, switchTo],
+  );
+
+  /**
+   * 播一段事件动画。返回是否真的播了。
+   *
+   * 为什么要「避开当前正播的」:事件动画都是 10 秒左右的长动画,
+   * 如果正好在播同一段,换源等于没换 —— 看起来像没反应。
+   */
+  const playEventAnimation = useCallback(
+    (kind: 'whisper' | 'workStatus' | 'balance'): boolean => {
+      const pool =
+        kind === 'whisper'
+          ? manifest.whisperAnimations
+          : kind === 'workStatus'
+            ? manifest.workStatusAnimations
+            : manifest.balanceAnimations;
+      if (!pool || !pool.length) return false;
+      const current = currentAnimRef.current;
+      const choices = pool.filter((n) => n !== current);
+      const pickFrom = choices.length ? choices : pool;
+      const name = pickFrom[Math.floor(Math.random() * pickFrom.length)];
+      if (!name || !manifest.animations[name]) return false;
+      switchTo(name, true, 'idle');
+      return true;
+    },
+    [manifest, switchTo],
   );
 
   /** 随机下一段。 */
@@ -332,13 +426,40 @@ export const VideoPetHost = forwardRef<VideoPetHostHandle, Props>(function Video
     const idlePool = manifest.categories.idle;
     const first = idlePool[0] ?? Object.keys(manifest.animations)[0] ?? '';
     if (first) switchTo(first, false, 'loop');
-    posRef.current = loadModelPos(character.id) ?? {
+    posRef.current = loadModelPos(character.id, scale) ?? {
       x: window.innerWidth / 2,
       y: window.innerHeight / 2 + 50,
     };
     applyPosToDom();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [character.id]);
+
+  // ---- 工作状态联动 ----
+  // 桌宠在 AI 思考/说话时切到工作状态动画,闲下来回 idle。
+  // 素材里 events.workStatus 有 6 段(思考冒泡/忙碌点按/清点归档/原地踱步张望/雀跃庆祝/垂头叹气冒汗)。
+  useEffect(() => {
+    const onState = (e: Event) => {
+      const kind = (e as CustomEvent).detail?.kind as string | undefined;
+      if (kind === 'thinking' || kind === 'talking') {
+        // 正在忙 → 切到工作状态动画(连播,不打断)
+        const pool = manifest.workStatusAnimations;
+        if (pool && pool.length) {
+          const current = currentAnimRef.current;
+          const choices = pool.filter((n) => n !== current);
+          const pickFrom = choices.length ? choices : pool;
+          const name = pickFrom[Math.floor(Math.random() * pickFrom.length)];
+          if (name && manifest.animations[name]) switchTo(name, false, 'loop');
+        }
+      } else {
+        // 闲下来了 → 回待机
+        const idlePool = manifest.categories.idle;
+        const first = idlePool[0];
+        if (first && first !== currentAnimRef.current) switchTo(first, false, 'loop');
+      }
+    };
+    window.addEventListener('pet:state', onState as EventListener);
+    return () => window.removeEventListener('pet:state', onState as EventListener);
+  }, [manifest, switchTo]);
 
   // ---- 朝向镜像 ----
   useEffect(() => {
@@ -371,6 +492,127 @@ export const VideoPetHost = forwardRef<VideoPetHostHandle, Props>(function Video
     onScaleChange?.(scale);
     onAnchorY?.(charHeight * CHARACTER_FOOT_RATIO);
   }, [scale, onScaleChange, onAnchorY]);
+
+  // ---- 上报桌宠位置(菜单定位用)----
+  // 每次位置变化(拖拽/漫游/甩抛)都要上报,否则菜单会留在旧位置。
+  useEffect(() => {
+    const report = () => {
+      const el = containerRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      onAnchor?.({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
+    };
+    report();
+    const timer = window.setInterval(report, 500);
+    return () => window.clearInterval(timer);
+  }, [onAnchor]);
+
+  // ---- 像素命中检测(click-through)----
+  //
+  // 桌宠窗口铺满全屏,如果不做这件事,整个屏幕都会被窗口挡住 —— 用户点别的应用没反应。
+  // 做法(与 hatch-pet-host 同源):
+  //   1. 全局 mousemove → 记下坐标
+  //   2. rAF 里把当前正在播的 video 画到隐藏 canvas,读那一像素的 alpha
+  //   3. alpha > 16 → 鼠标在角色身上 → 不穿透;否则 → 穿透
+  //   4. 菜单/气泡等 UI 元素上也不穿透
+  //
+  // ⚠ 用 video.currentTime 拿不到像素 —— 必须 drawImage 到 canvas 才能读。
+  useEffect(() => {
+    const canvas = hitCanvasRef.current;
+    if (!canvas) return;
+    const hitCtx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!hitCtx) return;
+
+    let insideRef = { current: false };
+    let hitRaf: number | null = null;
+    let pendingX = 0;
+    let pendingY = 0;
+
+    const runHitTest = () => {
+      hitRaf = null;
+      const cx = pendingX;
+      const cy = pendingY;
+
+      // UI 元素上不穿透(菜单、气泡、错误提示…)
+      const elAt = document.elementFromPoint(cx, cy);
+      const overUi =
+        !!elAt &&
+        elAt.closest(
+          '.pet-menu, .pet-menu-panel, .scan-error, .scan-hint, .vosk-toast, .dialog-frame, .qa-popup, .debug-trigger, .debug-panel, .clipboard-suggest',
+        ) !== null;
+
+      let onPixel = false;
+      if (!overUi) {
+        // 取当前在前台播的 video
+        const v = frontRef.current;
+        const host = containerRef.current;
+        if (v && host && v.videoWidth > 0) {
+          const rect = host.getBoundingClientRect();
+          const localX = cx - rect.left;
+          const localY = cy - rect.top;
+          if (localX >= 0 && localX < rect.width && localY >= 0 && localY < rect.height) {
+            // 容器是缩放后的尺寸,canvas 是原始 640×360;按比例换算
+            const px = Math.floor((localX / rect.width) * canvas.width);
+            const py = Math.floor((localY / rect.height) * canvas.height);
+            try {
+              // 把当前帧画到隐藏 canvas 上再读 alpha
+              hitCtx.clearRect(0, 0, canvas.width, canvas.height);
+              hitCtx.drawImage(v, 0, 0, canvas.width, canvas.height);
+              const data = hitCtx.getImageData(px, py, 1, 1).data;
+              onPixel = data[3] > 16;
+            } catch {
+              // 跨域/解码未就绪 → 保守当成「不在角色上」(穿透),别挡住用户
+              onPixel = false;
+            }
+          }
+        }
+      }
+
+      // ★ 兜底:即使 alpha 检测失败(解码未就绪 / 浏览器限制),
+      //   也要保证「角色大致所在的那一块」能点得到。
+      //   否则用户会看到桌宠却点不动它 —— 实测踩过(video 还没 ready 时整块都穿透)。
+      if (!onPixel && !overUi) {
+        const host = containerRef.current;
+        if (host) {
+          const rect = host.getBoundingClientRect();
+          // 角色在视频画布里的位置:居中,宽度约占 40%(200/640),高度约占 75%(270/360)
+          const charLeft = rect.left + rect.width * CHARACTER_LEFT_RATIO;
+          const charTop = rect.top + rect.height * CHARACTER_TOP_RATIO;
+          const charW = rect.width * CHARACTER_WIDTH_IN_VIDEO;
+          const charH = rect.height * CHARACTER_HEIGHT_IN_VIDEO;
+          if (cx >= charLeft && cx <= charLeft + charW && cy >= charTop && cy <= charTop + charH) {
+            onPixel = true;
+          }
+        }
+      }
+
+      const inside = overUi || onPixel;
+      if (inside !== insideRef.current) {
+        insideRef.current = inside;
+        window.petAPI?.setIgnoreMouseEvents(!inside, true);
+      }
+    };
+
+    const onMove = (e: MouseEvent) => {
+      pendingX = e.clientX;
+      pendingY = e.clientY;
+      if (hitRaf == null) hitRaf = requestAnimationFrame(runHitTest);
+    };
+
+    window.addEventListener('mousemove', onMove);
+    // ★ 启动就穿透(2026-10-31 修):
+    //   桌宠窗口是全屏透明置顶窗。启动时不穿透 → 从窗口出现到用户第一次
+    //   移动鼠标之间,整个屏幕都被这个透明窗挡住,用户点别的应用没反应。
+    //   forward:true 让穿透状态下 mousemove 仍能送到渲染端,hit-test 才能工作。
+    window.petAPI?.setIgnoreMouseEvents(true, true);
+
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      if (hitRaf != null) cancelAnimationFrame(hitRaf);
+      // 卸载时恢复「不穿透」—— 下一个角色的挂载 effect 会自己设成穿透
+      window.petAPI?.setIgnoreMouseEvents(false, false);
+    };
+  }, []);
 
   // ---- 拖拽 + 甩抛 ----
   useEffect(() => {
@@ -408,7 +650,7 @@ export const VideoPetHost = forwardRef<VideoPetHostHandle, Props>(function Video
       const dx = e.clientX - startX;
       const dy = e.clientY - startY;
       if (Math.abs(dx) > 3 || Math.abs(dy) > 3) moved = true;
-      posRef.current = { x: originX + dx, y: originY + dy };
+      posRef.current = clampPetPos({ x: originX + dx, y: originY + dy }, scale);
       if (rafId == null) {
         rafId = requestAnimationFrame(() => {
           rafId = null;
@@ -455,7 +697,7 @@ export const VideoPetHost = forwardRef<VideoPetHostHandle, Props>(function Video
       canvas.removeEventListener('contextmenu', onCtx);
       if (rafId != null) cancelAnimationFrame(rafId);
     };
-  }, [character.id, manifest.categories.clicks, manifest.categories.drag, applyPosToDom, switchTo]);
+  }, [character.id, manifest.categories.clicks, manifest.categories.drag, applyPosToDom, switchTo, scale]);
 
   // ---- 暴露给外部(handle) ----
   useImperativeHandle(
@@ -479,8 +721,9 @@ export const VideoPetHost = forwardRef<VideoPetHostHandle, Props>(function Video
       resetExpression: () => undefined,
       playAnimation,
       currentAnimation: () => currentAnimRef.current,
+      playEventAnimation,
     }),
-    [character.id, scale, playAnimation],
+    [character.id, scale, playAnimation, playEventAnimation],
   );
 
   const videoStyle: React.CSSProperties = {
@@ -511,6 +754,13 @@ export const VideoPetHost = forwardRef<VideoPetHostHandle, Props>(function Video
       {/* A/B 双缓冲:两个 video 交替播,换源时无缝接上 */}
       <video ref={videoARef} style={videoStyle} muted playsInline autoPlay />
       <video ref={videoBRef} style={videoStyle} muted playsInline autoPlay />
+      {/* 命中检测专用:离屏 canvas,只用来读当前帧的 alpha(不显示) */}
+      <canvas
+        ref={hitCanvasRef}
+        width={VIDEO_W}
+        height={VIDEO_H}
+        style={{ position: 'absolute', left: 0, top: 0, width: 0, height: 0, opacity: 0, pointerEvents: 'none' }}
+      />
     </div>
   );
 });

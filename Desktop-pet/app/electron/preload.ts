@@ -205,6 +205,21 @@ export interface AIMessage {
 const api = {
   ping: () => ipcRenderer.invoke('app:ping') as Promise<string>,
   scanCharacters: () => ipcRenderer.invoke('assets:scan') as Promise<CharacterIndex>,
+
+  // ---- 抖音刷视频 ----
+  douyinGetState: () => ipcRenderer.invoke('douyin:getState'),
+  douyinStart: () => ipcRenderer.invoke('douyin:start'),
+  douyinStop: () => ipcRenderer.invoke('douyin:stop'),
+  douyinNext: () => ipcRenderer.invoke('douyin:next'),
+  douyinWatch: () => ipcRenderer.invoke('douyin:watch'),
+  douyinGetUsage: () => ipcRenderer.invoke('douyin:getUsage'),
+  /** 订阅「桌宠刷完一条视频」的事件 —— 主进程推话过来,渲染端弹气泡。 */
+  onDouyinWatched: (cb: (payload: { text: string; decision: { action: string; reason: string } }) => void) => {
+    const h = (_e: unknown, payload: { text: string; decision: { action: string; reason: string } }) =>
+      cb(payload);
+    ipcRenderer.on('douyin:watched', h);
+    return () => ipcRenderer.off('douyin:watched', h);
+  },
   /** 运行缓存体积(Chromium cache / IndexedDB / GPU cache 等) */
   getRuntimeCacheUsage: () =>
     ipcRenderer.invoke('app:getRuntimeCacheUsage') as Promise<RuntimeCacheUsage>,
@@ -225,6 +240,14 @@ const api = {
   /** 设置鼠标穿透。透明区域 ignore=true 让事件穿透到下层窗口。 */
   setIgnoreMouseEvents: (ignore: boolean, forward: boolean) =>
     ipcRenderer.invoke('window:setIgnoreMouseEvents', ignore, forward) as Promise<void>,
+  /** 读当前的鼠标穿透状态(诊断 + 端到端验证用)。 */
+  getIgnoreMouseEvents: () =>
+    ipcRenderer.invoke('window:getIgnoreMouseEvents') as Promise<{
+      ok: boolean;
+      ignore: boolean | null;
+      focused?: boolean;
+      visible?: boolean;
+    }>,
   /**
    * 订阅全屏鼠标坐标(相对 BrowserWindow 左上角,CSS 像素)。
    * 即使鼠标在窗口外也持续推送,用于 Live2D 视线跟随。

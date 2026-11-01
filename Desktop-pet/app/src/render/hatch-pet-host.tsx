@@ -76,6 +76,8 @@ interface Props {
   onContextMenu?: (e: { clientX: number; clientY: number }) => void;
   onScaleChange?: (scale: number) => void;
   onAnchorY?: (y: number) => void;
+  /** 桌宠在窗口里的位置(中心点,窗口坐标)—— 菜单要贴着它弹,而不是贴屏幕边。 */
+  onAnchor?: (pos: { x: number; y: number }) => void;
   visible?: boolean;
 }
 
@@ -377,7 +379,7 @@ function computeRowFrameCounts(img: HTMLImageElement): number[] {
 export type RenderStyle = 'auto' | 'pixelated';
 
 export const HatchPetHost = forwardRef<CharacterHostHandle, Props>(function HatchPetHost(
-  { character, roots, onLoaded, onError, onContextMenu, onScaleChange, onAnchorY, visible = true },
+  { character, roots, onLoaded, onError, onContextMenu, onScaleChange, onAnchorY, onAnchor, visible = true },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -741,8 +743,11 @@ export const HatchPetHost = forwardRef<CharacterHostHandle, Props>(function Hatc
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
 
-    // 启动:默认不穿透。下一次 mousemove 会按 hit-test 调整。
-    window.petAPI?.setIgnoreMouseEvents(false, false);
+    // ★ 启动就穿透(2026-10-31 修):
+    //   桌宠窗口是全屏透明置顶窗。启动时不穿透 → 从窗口出现到用户第一次
+    //   移动鼠标之间,整个屏幕都被这个透明窗挡住,用户点别的应用没反应。
+    //   forward:true 让穿透状态下 mousemove 仍能送到渲染端,hit-test 才能工作。
+    window.petAPI?.setIgnoreMouseEvents(true, true);
 
     return () => {
       canvas.removeEventListener('mousedown', onDown);
@@ -751,7 +756,8 @@ export const HatchPetHost = forwardRef<CharacterHostHandle, Props>(function Hatc
       if (rafId != null) cancelAnimationFrame(rafId);
       if (hitRaf != null) cancelAnimationFrame(hitRaf);
       resetDragGesture();
-      // 卸载时一定关穿透,避免影响其它角色
+      // 卸载时恢复「不穿透」—— 下一个角色的挂载 effect 会自己设成穿透,
+      // 这里不设的话会留下「鼠标穿透」的状态给别的角色。
       window.petAPI?.setIgnoreMouseEvents(false, false);
     };
   }, [loaded, scale]); // 等 spritesheet 加载完才有像素可读
@@ -1135,6 +1141,20 @@ export const HatchPetHost = forwardRef<CharacterHostHandle, Props>(function Hatc
       window.removeEventListener('resize', report);
     };
   }, [onAnchorY, scale]);
+
+  // ---- 上报桌宠位置(菜单定位用)----
+  // 每次位置变化(拖拽/漫游/甩抛)都要上报,否则菜单会留在旧位置。
+  useEffect(() => {
+    const report = () => {
+      const el = containerRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      onAnchor?.({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
+    };
+    report();
+    const timer = window.setInterval(report, 500);
+    return () => window.clearInterval(timer);
+  }, [onAnchor]);
 
   useEffect(() => {
     onScaleChange?.(scale);

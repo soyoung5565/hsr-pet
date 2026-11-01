@@ -4,6 +4,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { spawn } from 'node:child_process';
 import { scanAll, resolveAssetRoots } from './asset-scanner.js';
+import { DouyinController } from './douyin-controller.js';
 import { loadConfig, saveConfig, type AppConfig } from './config-store.js';
 import { streamChat, type ChatMessage } from './ai-client.js';
 import { mcpManager, type McpToolDesc } from './mcp-client.js';
@@ -155,8 +156,15 @@ function createWindow(): void {
   // alwaysOnTop 级别:'screen-saver' 能压过全屏应用(后期可在设置里降为普通)
   mainWindow.setAlwaysOnTop(true, 'screen-saver');
 
-  // 默认不忽略鼠标事件;后续切到「穿透模式」时再开
-  // mainWindow.setIgnoreMouseEvents(true, { forward: true });
+  // ★ 启动就开穿透(2026-10-31 修):
+  //   桌宠窗口是**全屏**的透明置顶窗(为了能在多屏之间漫游)。
+  //   如果启动时不穿透,从窗口出现到用户第一次移动鼠标之前,
+  //   整个屏幕都被这个透明窗吃掉 —— 用户点任何别的应用都没反应。
+  //   实测反馈:「透明窗口占了整个屏幕,点不了别的东西」。
+  //
+  //   forward:true = 穿透的同时仍然把 mousemove 转给渲染端,
+  //   渲染端靠它做像素命中检测(命中角色就取消穿透)。
+  mainWindow.setIgnoreMouseEvents(true, { forward: true });
 
   // 把渲染进程的 console.* 全部转发到主进程终端,便于不开 DevTools 也能看错误
   mainWindow.webContents.on('console-message', (_e, level, message, line, sourceId) => {
@@ -822,10 +830,77 @@ ipcMain.handle('vosk:removeCustomModel', () => {
   return true;
 });
 
-// IPC: 扫描全部角色(Live2D + PNG)
+// IPC: 扫描全部角色(Live2D + PNG + Video-Pet)
 ipcMain.handle('assets:scan', async () => {
   return scanAll();
 });
+
+// ---------------- 抖音刷视频 ----------------
+//
+// 从 dsh-douyin-agent(LockyBee/dsh-douyin-agent, MIT)搬来的能力,
+// 模型后端换成本机 MiniMax(画面/音频/判断全走 MiniMax)。
+//
+// 设计:所有 IPC 都只在主进程里跑 Playwright —— 渲染端不碰浏览器。
+
+/** 抖音控制器单例。整个进程只有一个专用 Edge。 */
+const douyin = new DouyinController();
+
+/**
+ * 桌宠看到视频后说什么 —— 主进程把话**发给**渲染端,渲染端用气泡显示。
+ *
+ * ★ 不能反过来让渲染端把回调函数传过来:IPC 不能序列化函数。
+ *   正确方向永远是「主进程 → 渲染端」的 IPC 事件。
+ */
+douyin.setOnWatched((obs, decision) => {
+  const text = obs.understanding
+    ? `刚看到一个:${obs.title || obs.understanding.slice(0, 40)}`
+    : '刚看了个视频,还行吧';
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) win.webContents.send('douyin:watched', { text, decision });
+  }
+});
+
+ipcMain.handle('douyin:getState', () => douyin.getState());
+
+ipcMain.handle('douyin:start', async () => {
+  const cfg = loadConfig();
+  const started = await douyin.startBrowser();
+  if (!started.ok) return started;
+  const feed = await douyin.openFeed();
+  if (!feed.ok) return feed;
+  void cfg;
+  return { ok: true };
+});
+
+ipcMain.handle('douyin:stop', async () => {
+  douyin.stop();
+  await douyin.stopBrowser();
+  return { ok: true };
+});
+
+ipcMain.handle('douyin:next', async () => {
+  await douyin.nextVideo();
+  return { ok: true };
+});
+
+ipcMain.handle('douyin:watch', async () => {
+  const cfg = loadConfig();
+  // MiniMax key:优先用配置的 apiKey(用户设置的 provider)
+  const apiKey = cfg.apiKey;
+  if (!apiKey) return { ok: false, error: '没配 API Key —— 先在设置里配 MiniMax' };
+  if (!douyin.getState().browserReady) return { ok: false, error: '浏览器还没起' };
+  if (!douyin.inAllowedWindow()) return { ok: false, error: '当前不在允许的观看时段' };
+  if (douyin.overQuota()) return { ok: false, error: '今天的观看额度用完了' };
+
+  // 后台跑观看循环,不阻塞 IPC 返回
+  void douyin.runWatchLoop(apiKey).catch((e) => {
+    // eslint-disable-next-line no-console
+    console.warn('[douyin] watch loop failed:', e);
+  });
+  return { ok: true };
+});
+
+ipcMain.handle('douyin:getUsage', () => douyin.getUsage());
 
 // IPC: 查询所有显示器的工作区(多屏漫游用)。
 //
@@ -840,6 +915,22 @@ ipcMain.handle('assets:scan', async () => {
 //      所以「窗口原点」是稳定的基准。用 getBounds() 实时读,避免窗口被外移后算错。
 //   4. 高 DPI 混合缩放(主屏 150% + 副屏 100%)时 workArea.width 是 DIP 宽度,
 //      跨屏坐标也由 Electron 换算好,可直接拼接使用。
+// IPC: 查窗口当前的鼠标穿透状态(诊断用)。
+//
+// 桌宠窗口是全屏透明置顶窗,必须靠 setIgnoreMouseEvents 做像素级穿透 ——
+// 不做的话整个屏幕都被窗口挡住,用户点别的应用都没反应。
+// 这个 IPC 把真实状态暴露出来,便于端到端验证(而不是靠猜)。
+ipcMain.handle('window:getIgnoreMouseEvents', () => {
+  const win = mainWindow;
+  if (!win || win.isDestroyed()) return { ok: false, ignore: null };
+  return {
+    ok: true,
+    ignore: ignoreMouseEventsState,
+    focused: win.isFocused(),
+    visible: win.isVisible(),
+  };
+});
+
 ipcMain.handle('screen:getRoamRects', () => {
   const displays = screen.getAllDisplays();
   // 窗口原点(相对虚拟桌面)
@@ -977,7 +1068,14 @@ ipcMain.handle('window:setSize', () => {
 
 // IPC: 设置鼠标穿透。ignore=true 时窗口对鼠标透明,事件穿透到下层。
 //   forward=true 时即使忽略,渲染进程仍能收到 mousemove,用于 hit-test 切换。
+/**
+ * 当前的鼠标穿透状态 —— Electron 不暴露 setIgnoreMouseEvents 的当前值
+ * (只能设置,不能读),所以自己记一份,给诊断 IPC 读。
+ */
+let ignoreMouseEventsState = true;
+
 ipcMain.handle('window:setIgnoreMouseEvents', (_e, ignore: boolean, forward: boolean) => {
+  ignoreMouseEventsState = !!ignore;
   if (!mainWindow) return;
   mainWindow.setIgnoreMouseEvents(!!ignore, { forward: !!forward });
 });

@@ -589,6 +589,14 @@ interface VisionAssistant {
   model: string;
   /** 给思考气泡显示用,如「指定:OpenAI/gpt-4o」「兜底:智谱/glm-4v-plus」 */
   source: string;
+  /**
+   * 协议形态:openai(默认) / anthropic。
+   *
+   * ★ MiniMax 必须走 anthropic:实测 2026-10-31,原生 OpenAI 端点收下 image_url
+   *   但模型不解析,回「请上传图片」—— 视觉能力静默失效。
+   *   Anthropic 兼容端点则正常识图(实测蓝发女仆立绘,描述完全正确)。
+   */
+  apiMode?: 'openai' | 'anthropic';
 }
 
 /** 选一个能识图的辅助。优先用户手动指定,其次扫所有 profile 关键词匹配兜底。
@@ -606,6 +614,7 @@ function pickVisionAssistant(cfg: AppConfig): VisionAssistant | null {
         apiKey: p.apiKey,
         model: va.assistantModel,
         source: `指定:${p.name}/${va.assistantModel}`,
+        apiMode: p.apiMode,
       };
     }
   }
@@ -620,6 +629,7 @@ function pickVisionAssistant(cfg: AppConfig): VisionAssistant | null {
           apiKey: p.apiKey,
           model: m,
           source: `兜底:${p.name}/${m}`,
+          apiMode: p.apiMode,
         };
       }
     }
@@ -680,6 +690,7 @@ function pickGeneralAssistant(cfg: AppConfig): VisionAssistant | null {
           apiKey: p.apiKey,
           model: m,
           source: `兜底:${p.name}/${m}`,
+          apiMode: p.apiMode,
         };
       }
     }
@@ -927,30 +938,72 @@ function lastUserHasImage(messages: ChatMessage[]): ChatContentPart[] | null {
   return null;
 }
 
-/** 调辅助 model 一次性识图,非流式,返回描述文本。失败返回 null,不阻断主流程。 */
+/** 调辅助 model 一次性识图,非流式,返回描述文本。失败返回 null,不阻断主流程。
+ *
+ *  ★ 两种协议:
+ *    - openai   :`{baseURL}/chat/completions` + Authorization: Bearer
+ *    - anthropic:`{baseURL}/v1/messages`   + X-Api-Key + anthropic-version
+ *
+ *  为什么要有第二种:MiniMax 的原生 OpenAI 端点**不解析 image_url**
+ *  (实测 2026-10-31:收下但模型回「请上传图片」,视觉静默失效),
+ *  必须走 Anthropic 兼容端点。content 块的形状也完全不同:
+ *  OpenAI 用 `{type:'image_url', image_url:{url}}`,
+ *  Anthropic 用 `{type:'image', source:{type:'base64', media_type, data}}`。
+ */
 function describeImagesWithAssistant(
   assistant: VisionAssistant,
   userContent: ChatContentPart[],
 ): Promise<string | null> {
-  const url = assistant.baseURL.replace(/\/+$/, '') + '/chat/completions';
-  const body = JSON.stringify({
-    model: assistant.model,
-    stream: false,
-    messages: [
-      {
-        role: 'system',
-        content:
-          '你是图像描述助手。请用中文客观、详细地描述用户提供的每张图片:' +
-          '画面主体、文字内容、颜色、构图、可见的关键信息等。' +
-          '不要回答用户文字里的其他问题,只描述图。',
-      },
-      { role: 'user', content: userContent },
-    ],
-  });
+  const isAnthropic = assistant.apiMode === 'anthropic';
+  const url = isAnthropic
+    ? assistant.baseURL.replace(/\/+$/, '') + '/v1/messages'
+    : assistant.baseURL.replace(/\/+$/, '') + '/chat/completions';
+  const systemText =
+    '你是图像描述助手。请用中文客观、详细地描述用户提供的每张图片:' +
+    '画面主体、文字内容、颜色、构图、可见的关键信息等。' +
+    '不要回答用户文字里的其他问题,只描述图。';
+
+  let body: string;
+  if (isAnthropic) {
+    // OpenAI 的 content part → Anthropic 的 content block
+    const blocks = userContent.map((part): Record<string, unknown> => {
+      if (part.type === 'text') return { type: 'text', text: part.text };
+      const url = part.image_url?.url ?? '';
+      const m = /^data:([^;]+);base64,(.*)$/.exec(url);
+      if (m) {
+        return {
+          type: 'image',
+          source: { type: 'base64', media_type: m[1], data: m[2] },
+        };
+      }
+      // 非 base64 的外链 URL —— Anthropic 端点只认 base64 或 url source
+      return { type: 'image', source: { type: 'url', url } };
+    });
+    body = JSON.stringify({
+      model: assistant.model,
+      max_tokens: 2048,
+      system: systemText,
+      messages: [{ role: 'user', content: blocks }],
+    });
+  } else {
+    body = JSON.stringify({
+      model: assistant.model,
+      stream: false,
+      messages: [
+        { role: 'system', content: systemText },
+        { role: 'user', content: userContent },
+      ],
+    });
+  }
   return new Promise((resolve) => {
     const request = net.request({ method: 'POST', url });
     request.setHeader('Content-Type', 'application/json');
-    request.setHeader('Authorization', `Bearer ${assistant.apiKey}`);
+    if (isAnthropic) {
+      request.setHeader('X-Api-Key', assistant.apiKey);
+      request.setHeader('anthropic-version', '2023-06-01');
+    } else {
+      request.setHeader('Authorization', `Bearer ${assistant.apiKey}`);
+    }
     let buf = '';
     let status = 0;
     request.on('response', (resp) => {
@@ -966,8 +1019,19 @@ function describeImagesWithAssistant(
         }
         try {
           const j = JSON.parse(buf);
-          const text = j?.choices?.[0]?.message?.content;
-          resolve(typeof text === 'string' && text.trim() ? text.trim() : null);
+          if (isAnthropic) {
+            // Anthropic 响应:content[] 里挑 type=text 的块(thinking 块要跳过)
+            const blocks = Array.isArray(j?.content) ? j.content : [];
+            const text = blocks
+              .filter((b: { type?: string }) => b?.type === 'text')
+              .map((b: { text?: string }) => b.text ?? '')
+              .join('')
+              .trim();
+            resolve(text || null);
+          } else {
+            const text = j?.choices?.[0]?.message?.content;
+            resolve(typeof text === 'string' && text.trim() ? text.trim() : null);
+          }
         } catch (e) {
           console.warn('[vision-assist] parse failed:', (e as Error).message);
           resolve(null);

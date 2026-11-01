@@ -23,6 +23,8 @@ interface Props {
   onScaleChange?: (scale: number) => void;
   /** 报告当前模型在窗口里的"对话气泡锚点 Y"(腰线附近,CSS 像素) */
   onAnchorY?: (y: number) => void;
+  /** 桌宠在窗口里的位置(中心点,窗口坐标)—— 菜单要贴着它弹,而不是贴屏幕边。 */
+  onAnchor?: (pos: { x: number; y: number }) => void;
   /** 模型是否可见。隐藏时暂停 Pixi/Live2D ticker,避免 display:none 仍然烧 CPU。 */
   visible?: boolean;
 }
@@ -325,11 +327,27 @@ export const CharacterHost = forwardRef<CharacterHostHandle, Props>(function Cha
     onContextMenu,
     onScaleChange,
     onAnchorY,
+    onAnchor,
     visible = true,
   },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // ---- 上报桌宠位置(菜单定位用)----
+  // 每次位置变化都要上报,否则菜单会留在旧位置。
+  useEffect(() => {
+    if (!onAnchor) return;
+    const report = () => {
+      const el = containerRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      onAnchor({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
+    };
+    report();
+    const timer = window.setInterval(report, 500);
+    return () => window.clearInterval(timer);
+  }, [onAnchor]);
   const appRef = useRef<PIXI.Application | null>(null);
   const modelRef = useRef<Live2DModel | null>(null);
   const visibleRef = useRef<boolean>(visible);
@@ -942,9 +960,12 @@ export const CharacterHost = forwardRef<CharacterHostHandle, Props>(function Cha
     };
     window.addEventListener('keydown', onToggleKey);
 
-    // 启动:默认不穿透。鼠标移动后由像素 alpha hit-test 动态切换
-    window.petAPI?.setIgnoreMouseEvents(false, false);
-    insideModelRef.current = true;
+    // ★ 启动就穿透(2026-10-31 修):
+    //   桌宠窗口是全屏透明置顶窗。启动时不穿透 → 从窗口出现到用户第一次
+    //   移动鼠标之间,整个屏幕都被这个透明窗挡住,用户点别的应用没反应。
+    //   forward:true 让穿透状态下 mousemove 仍能送到渲染端,hit-test 才能工作。
+    window.petAPI?.setIgnoreMouseEvents(true, true);
+    insideModelRef.current = false;
 
     return () => {
       ro.disconnect();

@@ -497,6 +497,14 @@ body {
   60% { transform: translateY(-50%) translateX(4px) scale(1.05); opacity: 1; }
   100% { transform: translateY(-50%) translateX(0) scale(1); opacity: 1; }
 }
+/* 贴桌宠定位用的弹出动画 —— 只动 opacity,不动 transform。
+   原因:菜单现在用 inline style 算 left/top,动画若带 translateY/translateX
+   (fill-mode:both)会一直占着 transform,把定位顶掉。 */
+@keyframes pet-menu-pop-anchored {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
 @keyframes pet-btn-bounce {
   0%   { transform: scale(0.4); opacity: 0; }
   60%  { transform: scale(1.15); opacity: 1; }
@@ -525,6 +533,11 @@ body {
 }
 .app--dialog-left .pet-menu--left {
   left: 352px;
+}
+
+/* 贴桌宠模式的菜单:位置由 inline style 决定,只保留淡入 */
+.pet-menu--anchored {
+  animation: pet-menu-pop-anchored 0.16s ease-out both !important;
 }
 
 .pet-menu-buttons {
