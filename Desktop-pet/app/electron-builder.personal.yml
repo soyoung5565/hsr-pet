@@ -7,6 +7,19 @@ directories:
   output: dist-app
   buildResources: build
 
+# ★ 跳过原生模块 rebuild。
+#
+#   electron-builder 默认会跑 @electron/rebuild,对每个带原生 binding 的依赖
+#   调 node-gyp 重新编译 —— 本机没装 Visual Studio,直接报
+#   「Could not find any Visual Studio installation to use」,打包 100% 失败。
+#
+#   get-windows 是 NAPI 包(自带 napi-9 预编译二进制),
+#   NAPI 的 ABI 跨 Node/Electron 版本稳定,重新编译不但没必要,
+#   反而会把预编译产物覆盖成 Electron 版本 —— 风险大于收益。
+#
+#   别的原生依赖(没有 .node binding)不受影响,照常走。
+npmRebuild: false
+
 # 打包结果里这些文件会进入 app.asar
 files:
   - dist/**/*
@@ -19,29 +32,33 @@ files:
 
 # 资产目录:运行期通过 process.resourcesPath 访问
 # 注:cwd 是 app/(electron-builder 在 app/ 内执行)
+#
+# ★ 目录不存在时 electron-builder 会报 ENOENT 直接失败,
+#   所以这里只列**真实存在**的目录 —— 别照抄旧配置里的 live2d/notify/VOSK,
+#   那三个目录本机从来不存在(它们是上游 Codex 项目留下的,没随 fork 带过来)。
 extraResources:
+  # 应用图标
   - from: build
     to: build
     filter: ['icon.ico', 'icon.png']
-  # Live2D 角色资源
-  - from: live2d
-    to: live2d
-    filter: ['**/*']
-  # Hatch-Pet(Codex)桌宠资源 — 跟 Live2D 平级。每个子目录一只桌宠,
+  # Hatch-Pet 桌宠(精灵表)—— 跟 Live2D 平级。每个子目录一只桌宠,
   # 内含 pet.json + spritesheet.webp。用户后续也可以在设置面板「导入文件夹」,
   # 那种导入会落到 userData/hatch-pet/(可写),不进打包。
   - from: hatch-pet
     to: hatch-pet
     filter: ['**/*']
-  # PNG 通知动画素材(说话 / 眨眼待机 等),未来 AI 回答完毕时用于托盘弹出动画
-  - from: notify
-    to: notify
+  # ★ Video-Pet 桌宠(透明 webm 动画 + 表情包 + 点击音效)。
+  #   这是**默认角色**「蓝毛小女仆」的全部素材(约 58MB)——
+  #   不打进去的话,装好的桌宠一个角色都没有,画面全空。
+  - from: video-pet
+    to: video-pet
     filter: ['**/*']
-  # 内置 vosk 小模型(~42MB ZIP) — 供对话框语音输入使用
-  # 大模型(~1.4GB)不打包,用户在设置里选自己下载的 zip 路径
-  - from: VOSK
-    to: VOSK
-    filter: ['**/*.zip']
+
+# 打包完成后给 exe 补图标 + 版本信息。
+# ★ 必须在 afterPack(而不是「打包完手动跑」)——
+#   NSIS 安装包是在 win-unpacked 之后生成的,它打的是 win-unpacked 里的文件。
+#   手动补的话得跑两轮,而第二轮会重新生成 win-unpacked,把图标冲掉。
+afterPack: scripts/after-pack-icon.cjs
 
 win:
   target:
@@ -49,6 +66,18 @@ win:
       arch: [x64]
   icon: build/icon.ico
   artifactName: ${productName}-${version}-${arch}.${ext}
+  # ★ 跳过「编辑 exe 图标/版本信息」这一步(electron-builder 叫它 signAndEditExecutable)。
+  #
+  #   为什么:这一步会去下载并解压 winCodeSign 工具包,而那个包里带 macOS 的
+  #   darwin/10.12/lib/libcrypto.dylib **符号链接**。Windows 上解压符号链接
+  #   需要「创建符号链接」特权(开发者模式或管理员),普通用户会报
+  #     ERROR: Cannot create symbolic link : 客户端没有所需特权
+  #   darwin 目录在 Windows 打包里根本用不上,但 7za 会因为这两个符号链接
+  #   整体失败 → 打包 100% 挂掉。
+  #
+  #   代价:exe 默认图标/版本信息不写入。图标我们打包完用 rcedit 手动补上
+  #   (见 scripts/set-exe-icon.ps1),比在打包流程里跟符号链接较劲省事。
+  signAndEditExecutable: false
 
 nsis:
   oneClick: false

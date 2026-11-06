@@ -1,19 +1,17 @@
 {
   "name": "desktop-pet",
   "version": "0.1.0",
-  "description": "Desktop pet with Live2D + PNG sprites + LLM chat (Electron + Vite + React)",
+  "description": "Desktop pet 桌宠 — Hatch-Pet 精灵表 + Video-Pet 透明动画 + LLM 对话 + 主动搭话",
   "main": "dist-electron/main.js",
   "type": "module",
   "private": true,
   "scripts": {
     "dev": "vite",
-    "build": "npm run build:live2d:all",
+    "build": "npm run build:prepare && electron-builder --config electron-builder.personal.yml",
     "build:prepare": "tsc -p tsconfig.node.json && vite build",
-    "build:personal": "npm run build:live2d:all",
-    "build:public": "npm run build:live2d:none",
-    "build:live2d:all": "npm run build:prepare && electron-builder --config electron-builder.live2d-all.yml",
-    "build:live2d:common": "npm run build:prepare && electron-builder --config electron-builder.live2d-common.yml",
-    "build:live2d:none": "npm run build:prepare && electron-builder --config electron-builder.live2d-none.yml",
+    "build:personal": "npm run build",
+    "build:dir": "npm run build:prepare && electron-builder --config electron-builder.personal.yml --dir",
+    "build:public": "npm run build:prepare && electron-builder --config electron-builder.live2d-none.yml",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.node.json --noEmit",
     "lint": "echo \"(no linter configured yet)\""
   },
@@ -71,5 +69,6 @@
   "allowScripts": {
     "electron@33.4.11": true,
     "get-windows@9.3.0": true
-  }
+  },
+  "author": "local"
 }

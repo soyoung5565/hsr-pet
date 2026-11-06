@@ -2,6 +2,12 @@ appId: com.local.desktop-pet
 productName: DesktopPet
 copyright: ''
 asar: true
+
+# ★ 跳过原生模块 rebuild。
+#   electron-builder 默认会跑 @electron/rebuild,对 get-windows 这类带原生 binding 的
+#   依赖调 node-gyp 重新编译 —— 本机没装 Visual Studio,直接失败。
+#   get-windows 是 NAPI 包(自带 napi-9 预编译二进制),ABI 跨版本稳定,rebuild 没必要。
+npmRebuild: false
 directories:
   output: dist-app/live2d-common
   buildResources: build
@@ -16,24 +22,27 @@ files:
   - '!**/tsconfig*.json'
 
 extraResources:
+  # Video-Pet 桌宠(透明 webm 动画 + 表情包 + 点击音效)—— 默认角色「蓝毛小女仆」的素材
+  - from: video-pet
+    to: video-pet
+    filter: ['**/*']
   - from: build
     to: build
     filter: ['icon.ico', 'icon.png']
-  - from: live2d
-    to: live2d
-    filter: ['通用/**/*']
-  - from: notify
-    to: notify
-    filter: ['**/*']
-  - from: VOSK
-    to: VOSK
-    filter: ['**/*.zip']
+
+# 打包完成后给 exe 补图标 + 版本信息(见 scripts/after-pack-icon.cjs 的注释)
+afterPack: scripts/after-pack-icon.cjs
 
 win:
   target:
     - target: nsis
       arch: [x64]
   icon: build/icon.ico
+  # ★ 跳过「编辑 exe 图标/版本信息」——
+  #   electron-builder 的 signAndEditExecutable 会去解压 winCodeSign,那个包带 darwin
+  #   符号链接,Windows 非管理员解压不了(客户端没有所需特权)。
+  #   图标改由 afterPack 钩子用 rcedit 补上。
+  signAndEditExecutable: false
   artifactName: ${productName}-${version}-live2d-common-${arch}.${ext}
 
 nsis:
