@@ -11,6 +11,7 @@ import { mcpManager, type McpToolDesc } from './mcp-client.js';
 import { proactiveAware } from './proactive-aware.js';
 import { appEvents } from './app-events.js';
 import { probeBackends, runAgent, type AgentRunResult } from './agent-bridge.js';
+import { buildWatchPrompt, extractChatter, type DouyinPluginResult } from './douyin-plugin-bridge.js';
 import {
   loadCachedSkillsIndex,
   syncSkillsIndex,
@@ -844,6 +845,67 @@ ipcMain.handle('assets:scan', async () => {
 
 /** 抖音控制器单例。整个进程只有一个专用 Edge。 */
 const douyin = new DouyinController();
+
+/**
+ * ★ Hermes 插件版抖音 —— 桌宠调用插件刷视频的主路径。
+ *
+ * 与上面 DouyinController 的关系:
+ *   - DouyinController = 桌宠内置的旧实现(Electron 自己驱动 Edge + MiniMax)
+ *   - 这条 = 走 Hermes 插件 hermes-douyin-pet(浏览器控制在插件里,模型用宿主)
+ *
+ * 按用户要求「参考原项目的实现方式,让桌宠调用插件刷视频」,这条是主路径。
+ * 旧实现保留作为兜底(插件没装 / Hermes 不可用时还能刷)。
+ */
+ipcMain.handle('douyin:watchViaPlugin', async (
+  _e,
+  payload: { maxVideos?: number; secondsPerVideo?: number; extra?: string },
+): Promise<DouyinPluginResult> => {
+  const t0 = Date.now();
+  const cfg = loadConfig();
+  const bridge = cfg.agentBridge;
+  if (bridge && bridge.enabled === false) {
+    return {
+      ok: false,
+      output: '',
+      error: 'Agent 联动已在设置里关闭。到 设置 → Agent 联动 打开。',
+      elapsedMs: 0,
+    };
+  }
+  const prompt = buildWatchPrompt({
+    maxVideos: payload?.maxVideos,
+    secondsPerVideo: payload?.secondsPerVideo,
+    extra: payload?.extra,
+  });
+  const res = await runAgent({
+    prompt,
+    preferId: bridge?.backendId && bridge.backendId !== 'auto' ? bridge.backendId : undefined,
+    timeoutSec: Math.max(120, Math.min(900, bridge?.timeoutSec ?? 600)),
+    onLine: (line) => notifyRenderer('agent:log', { line }),
+  });
+  if (!res.ok) {
+    return { ok: false, output: '', backend: res.backend, error: res.error, elapsedMs: Date.now() - t0 };
+  }
+  return {
+    ok: true,
+    output: extractChatter(res.output),
+    backend: res.backend,
+    elapsedMs: Date.now() - t0,
+  };
+});
+
+/** 探测 Hermes 插件是否就位(给设置面板显示用)。 */
+ipcMain.handle('douyin:pluginStatus', () => {
+  const pluginDir = 'D:\\hermes-data\\plugins\\hermes-douyin-pet';
+  const manifest = path.join(pluginDir, 'plugin.yaml');
+  const exists = fs.existsSync(manifest);
+  return {
+    installed: exists,
+    pluginDir,
+    hint: exists
+      ? '插件已装。桌宠会通过 Hermes 调用它刷抖音。'
+      : '插件未安装 —— 桌宠会退回内置的抖音实现。',
+  };
+});
 
 /**
  * 桌宠看到视频后说什么 —— 主进程把话**发给**渲染端,渲染端用气泡显示。
