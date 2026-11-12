@@ -381,7 +381,11 @@ export interface AgentRunResult {
  */
 export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
   const t0 = Date.now();
-  const prompt = (opts.prompt ?? '').trim();
+  // ★ 换行必须压平(2026-11-13 实测):`.cmd` 经 `cmd.exe /c` 启动时,
+  //   参数里的 \n 会被 cmd 当成命令分隔符 → 只有第一行到达 CLI,后面静默丢失。
+  //   单行 prompt 实测完好(多行会被截断),所以这里统一 normalization,
+  //   不依赖调用方自己记得。
+  const prompt = (opts.prompt ?? '').replace(/\r?\n+/g, ' ').trim();
   if (!prompt) {
     return { ok: false, backend: '', output: '', error: 'prompt 不能为空', elapsedMs: 0 };
   }

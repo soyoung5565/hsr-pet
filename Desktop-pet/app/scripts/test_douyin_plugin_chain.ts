@@ -25,7 +25,8 @@ function buildWatchPrompt(maxVideos: number, secondsPerVideo: number): string {
     `参数:max_videos=${maxVideos}, seconds_per_video=${secondsPerVideo}。`,
     '调用成功后,用一句口语化的话(40 字以内,像在跟主人聊天)总结刚才看到的内容并作为输出。',
     '不要解释你做了什么,不要用列表,只说那一句感想。',
-  ].join('\n');
+    // ★ 必须是单行:换行会被 cmd.exe 当命令分隔符,后半截到不了 Hermes(2026-11-13 实测)
+  ].join(' ');
 }
 
 function run(args: string[], timeoutMs: number): Promise<{ code: number | null; out: string; err: string }> {

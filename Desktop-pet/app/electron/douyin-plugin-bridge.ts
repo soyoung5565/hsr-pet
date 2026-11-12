@@ -45,6 +45,10 @@ export interface DouyinPluginResult {
 export function buildWatchPrompt(req: DouyinWatchRequest): string {
   const maxVideos = Math.max(1, Math.min(20, Math.round(req.maxVideos ?? 3)));
   const seconds = Math.max(2, Math.min(30, Math.round(req.secondsPerVideo ?? 6)));
+  // ★ 必须压成**一行**(2026-11-13 实测):prompt 里的换行经 `cmd.exe /c` 会被当成
+  //   命令分隔符 —— 后半截根本没送到 Hermes,agent 只看到第一句,
+  //   于是「参数」「只输出一句感想」这些约束全部丢失(表现为 douyin_watch 用默认 3 条/6 秒,
+  //   输出变成一段解释而不是感想)。用顿号/分号连接,语义不变。
   const parts = [
     '请调用 hermes-douyin-pet 插件的 douyin_watch 工具,让桌宠自己刷抖音。',
     `参数:max_videos=${maxVideos}, seconds_per_video=${seconds}。`,
@@ -52,7 +56,7 @@ export function buildWatchPrompt(req: DouyinWatchRequest): string {
     '不要解释你做了什么,不要用列表,只说那一句感想。',
   ];
   if (req.extra) parts.push(req.extra);
-  return parts.join('\n');
+  return parts.join(' ');
 }
 
 /** 从 agent 输出里提取最终那段感想(去掉可能的 markdown 装饰)。 */
