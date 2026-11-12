@@ -27,11 +27,31 @@ interface BackendDef {
    * 组装一次性执行参数。
    * 注意:各家参数不通用 —— 这是逐个人肉确认过的,不要"统一"成一套。
    */
-  buildArgs: (prompt: string) => string[];
+  buildArgs: (prompt: string, opts?: BackendArgOpts) => string[];
   /** 这个后端是否支持显式指定工作目录(不支持就靠 spawn 的 cwd) */
   supportedCwd: boolean;
   /** 额外的前置检查(可选),返回 null 表示通过,返回字符串表示不可用原因 */
   precheck?: () => string | null;
+}
+
+/** 调后端时可传的额外参数(目前只有 hermes 用得上)。 */
+export interface BackendArgOpts {
+  /**
+   * 显式指定模型 + 提供方(**格式 `<provider>:<model>`,冒号,不是斜杠**)。
+   * 空 = 用 Hermes 自己的默认配置(推荐,见 config-store 的 DEFAULT_AGENT_BRIDGE)。
+   *
+   * ★ 为什么必须冒号(2026-11-13 读源码确认):
+   *   `hermes_cli/models.py::parse_model_input` 只把**冒号**当 provider 分隔符
+   *   (且左侧必须是已知 provider 名);`minimax-cn/xxx` 这种斜杠形式会被整串
+   *   当成模型名 → 404/静默走错 provider。
+   *
+   * ★ 2026-11-13 实测三种显式覆盖全部不可用:
+   *   minimax-cn → 429 Token Plan 用量上限;kimi-k3(newapi) → 挂住 100s+;
+   *   volcengine + ds-v4.1 → 404「模型不支持 agent plan」。
+   *   所以默认留空,交给宿主默认模型。
+   */
+  model?: string;
+  provider?: string;
 }
 
 /* ===================== 后端定义 ===================== */
@@ -42,7 +62,20 @@ const BACKENDS: BackendDef[] = [
     label: 'Hermes Agent',
     bins: ['hermes'],
     // `hermes -z <prompt>` = 非交互一次性执行,实测可用
-    buildArgs: (p) => ['-z', p],
+    buildArgs: (p, opts) => {
+      const args: string[] = [];
+      // ★ 参数顺序有讲究(2026-11-08 实测):
+      //   模型/提供方参数必须放在 `-z <prompt>` **之前**。
+      //   放后面时,prompt 里的换行会让 cmd.exe 把后面的 `-m` / `--provider`
+      //   当成 prompt 的延续吃掉 —— 表现是「参数静默失效」,仍然走默认 provider,
+      //   撞到那个 provider 的配额 429,看起来像「Hermes 坏了」。
+      //   实测对照:单行 prompt 放后面能生效,多行 prompt 放后面就失效;
+      //   参数放前面时两种都生效。
+      if (opts?.model) args.push('-m', opts.model);
+      if (opts?.provider) args.push('--provider', opts.provider);
+      args.push('-z', p);
+      return args;
+    },
     supportedCwd: true,
   },
   {
@@ -323,6 +356,12 @@ export interface AgentRunOptions {
   preferId?: string;
   /** 每读到一行就回调(用于流式展示) */
   onLine?: (line: string) => void;
+  /**
+   * 显式指定模型 + provider(只对支持的后端有效,目前是 hermes)。
+   * 见 BackendArgOpts 的注释 —— 为什么必须两个一起给。
+   */
+  model?: string;
+  provider?: string;
 }
 
 export interface AgentRunResult {
@@ -380,12 +419,24 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
   }
 
   const { def, full } = picked;
-  const args = def.buildArgs(prompt);
+  const args = def.buildArgs(prompt, { model: opts.model, provider: opts.provider });
   const cwd = opts.cwd && fs.existsSync(opts.cwd) ? opts.cwd : os.homedir();
   const timeoutMs = Math.max(10_000, Math.min(3600_000, (opts.timeoutSec ?? 300) * 1000));
   const isWin = process.platform === 'win32';
-  // .cmd / .bat 必须经 shell;.exe 可直接 spawn
-  const needsShell = isWin && /\.(cmd|bat)$/i.test(full);
+  // .cmd / .bat 不能直接 spawn(Windows 会报 ENOENT) —— 得经 cmd.exe。
+  //
+  // ★★★ 这里有个实测踩过的坑(2026-11-08):别用 spawn(full, args, {shell:true})。
+  //   Node 在 shell:true 时把数组拼成一行命令行交给 cmd.exe,**换行符就成了
+  //   命令分隔符** —— prompt 里只要有多行,后半截会被当成新命令:
+  //     `hermes: 'hermes-douyin-pet' is not a 'hermes' command.`
+  //   桌宠刷抖音的提示词正好是多行(要带参数说明),所以必炸。
+  //   连「把换行压成一行」也不行 —— 引号/中文混排时 cmd.exe 的转义仍然会错位。
+  //
+  //   正解:显式 spawn cmd.exe,让**它**去跑 .cmd,参数用数组传。
+  //   实测多行 + 中文 + 引号的 prompt 都能完整送达。
+  const isBatch = /\.(cmd|bat)$/i.test(full);
+  const spawnFile = isWin && isBatch ? 'cmd.exe' : full;
+  const spawnArgs = isWin && isBatch ? ['/c', full, ...args] : args;
 
   return await new Promise<AgentRunResult>((resolve) => {
     let settled = false;
@@ -404,9 +455,9 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
 
     let child;
     try {
-      child = spawn(full, args, {
+      // 用 spawnFile/spawnArgs —— .cmd 走 cmd.exe /c,参数以数组传(换行安全)
+      child = spawn(spawnFile, spawnArgs, {
         cwd,
-        shell: needsShell,
         windowsHide: true,
         env: {
           ...process.env,
@@ -428,10 +479,18 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
     }
 
     const timer = setTimeout(() => {
+      // ★ 杀整棵进程树,不只是 cmd.exe。
+      //   .cmd 现在是经 cmd.exe /c 起的 —— 杀掉 cmd.exe 之后,真正的
+      //   hermes python 进程会变成孤儿继续跑(还占着模型配额)。
+      //   taskkill /T /F 按父子关系杀整棵树。
       try {
-        child.kill();
+        if (isWin && child.pid) {
+          spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true });
+        } else {
+          child.kill();
+        }
       } catch {
-        // ignore
+        try { child.kill(); } catch { /* ignore */ }
       }
       finish({
         ok: false,

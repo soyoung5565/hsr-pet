@@ -213,6 +213,20 @@ const api = {
   douyinNext: () => ipcRenderer.invoke('douyin:next'),
   douyinWatch: () => ipcRenderer.invoke('douyin:watch'),
   douyinGetUsage: () => ipcRenderer.invoke('douyin:getUsage'),
+  /**
+   * ★ 让桌宠通过 Hermes 插件刷抖音(主路径)。
+   * 桌宠不自己开浏览器 —— 浏览器控制在 hermes-douyin-pet 插件里,
+   * 模型用 Hermes 宿主当前的模型。返回桌宠能直接念出来的感想。
+   */
+  douyinWatchViaPlugin: (payload: { maxVideos?: number; secondsPerVideo?: number; extra?: string }) =>
+    ipcRenderer.invoke('douyin:watchViaPlugin', payload) as Promise<{
+      ok: boolean; output: string; backend?: string; error?: string; elapsedMs: number;
+    }>,
+  /** Hermes 抖音插件是否就位 */
+  douyinPluginStatus: () =>
+    ipcRenderer.invoke('douyin:pluginStatus') as Promise<{
+      installed: boolean; pluginDir: string; hint: string;
+    }>,
   /** 订阅「桌宠刷完一条视频」的事件 —— 主进程推话过来,渲染端弹气泡。 */
   onDouyinWatched: (cb: (payload: { text: string; decision: { action: string; reason: string } }) => void) => {
     const h = (_e: unknown, payload: { text: string; decision: { action: string; reason: string } }) =>
@@ -660,6 +674,14 @@ export interface AgentBridgeConfig {
   workDir?: string;
   /** 派活前是否要用户确认 */
   confirmBeforeRun: boolean;
+  /**
+   * 调 Hermes 时显式指定的模型(格式 `<provider>/<model>`)。空 = 用 Hermes 默认模型。
+   * ★ 本机 config.yaml 的 model.provider 是硬绑定的,`-m <别名>` 改不掉 provider ——
+   *   默认 provider 配额烧满(429)时,显式指定可以绕开。
+   */
+  model?: string;
+  /** 调 Hermes 时显式指定的 provider(与 model 配套)。空 = 不覆盖。 */
+  provider?: string;
 }
 
 try {

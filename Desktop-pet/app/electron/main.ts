@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import { spawn } from 'node:child_process';
 import { scanAll, resolveAssetRoots } from './asset-scanner.js';
 import { DouyinController } from './douyin-controller.js';
-import { loadConfig, saveConfig, type AppConfig } from './config-store.js';
+import { loadConfig, saveConfig, getAgentBridgeConfig, type AppConfig } from './config-store.js';
 import { streamChat, type ChatMessage } from './ai-client.js';
 import { mcpManager, type McpToolDesc } from './mcp-client.js';
 import { proactiveAware } from './proactive-aware.js';
@@ -862,8 +862,8 @@ ipcMain.handle('douyin:watchViaPlugin', async (
 ): Promise<DouyinPluginResult> => {
   const t0 = Date.now();
   const cfg = loadConfig();
-  const bridge = cfg.agentBridge;
-  if (bridge && bridge.enabled === false) {
+  const bridge = getAgentBridgeConfig(cfg);
+  if (bridge.enabled === false) {
     return {
       ok: false,
       output: '',
@@ -879,15 +879,28 @@ ipcMain.handle('douyin:watchViaPlugin', async (
   const res = await runAgent({
     prompt,
     preferId: bridge?.backendId && bridge.backendId !== 'auto' ? bridge.backendId : undefined,
-    timeoutSec: Math.max(120, Math.min(900, bridge?.timeoutSec ?? 600)),
+    timeoutSec: Math.max(120, Math.min(900, bridge.timeoutSec ?? 600)),
+    // 模型/提供方覆盖 —— 默认 provider 配额烧满时(实测撞过 429)可以绕开
+    model: bridge.model,
+    provider: bridge.provider,
     onLine: (line) => notifyRenderer('agent:log', { line }),
   });
   if (!res.ok) {
     return { ok: false, output: '', backend: res.backend, error: res.error, elapsedMs: Date.now() - t0 };
   }
+  const chatter = extractChatter(res.output);
+  // ★ 桌宠「说感想」走主进程 → 渲染端的事件通道。
+  //   渲染端的 onDouyinWatched 是**订阅**函数,不是发送函数 ——
+  //   在渲染端直接调它会传错参(类型检查会报错,实测过)。
+  //   正确方向:主进程推事件,渲染端订阅(见 App.tsx 的 onDouyinWatched)。
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      win.webContents.send('douyin:watched', { text: chatter, decision: { action: 'done', reason: '' } });
+    }
+  }
   return {
     ok: true,
-    output: extractChatter(res.output),
+    output: chatter,
     backend: res.backend,
     elapsedMs: Date.now() - t0,
   };
@@ -1038,7 +1051,7 @@ ipcMain.handle('agent:probe', () => {
   const cfg = loadConfig();
   return {
     backends: probeBackends(),
-    configured: cfg.agentBridge?.backendId ?? 'auto',
+    configured: getAgentBridgeConfig(cfg).backendId,
   };
 });
 
@@ -1051,8 +1064,8 @@ ipcMain.handle(
     payload: { prompt: string; cwd?: string; timeoutSec?: number },
   ): Promise<AgentRunResult> => {
     const cfg = loadConfig();
-    const bridge = cfg.agentBridge;
-    if (bridge && bridge.enabled === false) {
+    const bridge = getAgentBridgeConfig(cfg);
+    if (bridge.enabled === false) {
       return {
         ok: false,
         backend: '',
@@ -1066,7 +1079,9 @@ ipcMain.handle(
       cwd: payload?.cwd,
       timeoutSec: payload?.timeoutSec,
       // 'auto' = 按优先级自动挑第一个可用的
-      preferId: bridge?.backendId && bridge.backendId !== 'auto' ? bridge.backendId : undefined,
+      preferId: bridge.backendId && bridge.backendId !== 'auto' ? bridge.backendId : undefined,
+      model: bridge.model,
+      provider: bridge.provider,
       onLine: (line) => notifyRenderer('agent:log', { line }),
     });
     return {

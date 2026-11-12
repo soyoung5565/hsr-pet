@@ -25,7 +25,7 @@ import {
 } from './memory-store.js';
 import { listSkills, getSkill } from './skill-registry.js';
 import { readScreenElements } from './uia-reader.js';
-import { loadConfig } from './config-store.js';
+import { loadConfig, getAgentBridgeConfig } from './config-store.js';
 import { appEvents } from './app-events.js';
 import { probeBackends, runAgent } from './agent-bridge.js';
 
@@ -970,8 +970,8 @@ const TOOLS: BuiltinTool[] = [
     mutating: true, // 有副作用 → 走用户确认
     handler: async (args) => {
       const cfg = loadConfig();
-      const bridge = cfg.agentBridge;
-      if (bridge && bridge.enabled === false) {
+      const bridge = getAgentBridgeConfig(cfg);
+      if (bridge.enabled === false) {
         throw new Error('Agent 联动已在设置里关闭,无法派任务。到 设置 → Agent 联动 打开。');
       }
       const prompt = String(args.prompt ?? '').trim();
@@ -979,12 +979,14 @@ const TOOLS: BuiltinTool[] = [
 
       const r = await runAgent({
         prompt,
-        cwd: typeof args.cwd === 'string' ? args.cwd : bridge?.workDir,
+        cwd: typeof args.cwd === 'string' ? args.cwd : bridge.workDir,
         timeoutSec:
           typeof args.timeout_sec === 'number'
             ? Math.max(10, Math.min(3600, Math.round(args.timeout_sec)))
-            : bridge?.timeoutSec,
-        preferId: bridge?.backendId && bridge.backendId !== 'auto' ? bridge.backendId : undefined,
+            : bridge.timeoutSec,
+        preferId: bridge.backendId && bridge.backendId !== 'auto' ? bridge.backendId : undefined,
+        model: bridge.model,
+        provider: bridge.provider,
       });
 
       if (!r.ok) {

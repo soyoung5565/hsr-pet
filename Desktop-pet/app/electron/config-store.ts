@@ -236,13 +236,37 @@ export interface AgentBridgeConfig {
   workDir?: string;
   /** 派活前是否要用户确认(默认 true —— 让 agent 改文件是有副作用的)。 */
   confirmBeforeRun: boolean;
+  /**
+   * 调 Hermes 时显式指定的模型(格式 `<provider>/<model>`)。
+   * 空 = 用 Hermes 自己的默认配置。
+   *
+   * ★ 为什么需要:本机 config.yaml 的 model.provider 是硬绑定的,
+   *   `hermes -m <别名>` 改不掉 provider,仍然打到默认那个 provider。
+   *   默认 provider 的配额烧满时,桌宠调 Hermes 会整条失败 —— 显式指定可以绕开。
+   */
+  model?: string;
+  /** 调 Hermes 时显式指定的 provider(与 model 配套)。空 = 不覆盖。 */
+  provider?: string;
 }
 
 const DEFAULT_AGENT_BRIDGE: AgentBridgeConfig = {
   enabled: true,
   backendId: 'auto',
-  timeoutSec: 300,
+  // ★ 默认给到 600 秒:桌宠刷抖音这条路径要起浏览器 + 抽帧 + 送模型,
+  //   300 秒经常不够(实测一条视频的完整链路就要 20-60 秒,3 条更久)。
+  timeoutSec: 600,
   confirmBeforeRun: true,
+  // ★ 默认**不覆盖**模型/provider —— 用 Hermes 自己的默认模型(2026-11-13 实测):
+  //   三个候选全部实测过一遍,都不能当默认:
+  //     · minimax-cn/MiniMax-M3.1-Flash → HTTP 429「Token Plan 用量上限」(配额烧光)
+  //     · custom:newapi + kimi-k3       → 请求挂住 100 秒以上不返回(必须 taskkill)
+  //     · custom:volcengine + ds-v4.1   → HTTP 404「模型不支持 agent plan」
+  //   而**不给 -m/--provider**(走宿主默认 workbuddy/deepseek-v4.1-flash)9.9 秒正常返回。
+  //   用户要换模型时再在 设置 → Agent 联动 里显式填。
+  //   格式注意:必须用冒号 `<provider>:<model>`;斜杠形式 `parse_model_input` 不认,
+  //   会把整串当模型名(2026-11-13 读 hermes_cli/models.py 确认)。
+  model: '',
+  provider: '',
 };
 
 const DEFAULT_PROACTIVE: ProactiveConfig = {
@@ -487,7 +511,12 @@ function migrate(j: LegacyConfig): AppConfig {
     proactive: j.proactive ?? undefined,
     // ⚠ agentBridge 必须在这里显式带回,否则用户在设置里改了"后端 / 超时 / 开关",
     //   写进 config.json 了,但 loadConfig 读回来时把它丢了 —— 表现为"改了没反应"。
-    agentBridge: j.agentBridge ?? undefined,
+    // ★ 补上默认值合并:原来这里是 `j.agentBridge ?? undefined` —— 配置里没这个键时
+    //   存盘也存不进去、设置面板读不到默认值。
+    //   而 getAgentBridgeConfig() 这个合并函数**定义了但从没被调用**(死代码),
+    //   所以「agentBridge 配置是空的」这个悬空项一直没真正解决。
+    //   现在统一在这里合并 —— 单一真理来源,存盘和读取都带着默认值。
+    agentBridge: { ...DEFAULT_AGENT_BRIDGE, ...(j.agentBridge ?? {}) },
     providerProfiles: Array.isArray(j.providerProfiles) ? j.providerProfiles : undefined,
     activeProviderId: j.activeProviderId ?? undefined,
     visionAssist: j.visionAssist ?? undefined,

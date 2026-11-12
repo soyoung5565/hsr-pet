@@ -939,6 +939,31 @@ body {
   opacity: 0.5;
   cursor: not-allowed;
 }
+/* 设置面板里的文本输入框(模型名 / provider 等)。 */
+.settings-text-input {
+  width: 220px;
+  padding: 4px 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #2a2a32;
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 6px;
+  outline: none;
+  transition: border-color 0.15s, background 0.15s;
+}
+.settings-text-input:focus {
+  border-color: rgba(80, 110, 200, 0.6);
+  background: #fff;
+}
+.settings-text-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.settings-text-input::placeholder {
+  color: rgba(42, 42, 50, 0.4);
+  font-weight: 400;
+}
 .settings-section {
   margin-top: 6px;
   padding-top: 8px;

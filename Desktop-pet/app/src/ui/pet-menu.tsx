@@ -459,12 +459,16 @@ function DraggableDouyinPanel({ onBack }: { onBack: () => void }) {
     lastError?: string;
   } | null>(null);
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
-  const [busy, setBusy] = useState(false);
+    const [pluginMsg, setPluginMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+    const [pluginStatus, setPluginStatus] = useState<{ installed: boolean; hint: string } | null>(null);
+    const [busy, setBusy] = useState(false);
 
-  const refresh = useCallback(async () => {
-    const s = await window.petAPI?.douyinGetState?.();
-    if (s) setState(s as never);
-  }, []);
+    const refresh = useCallback(async () => {
+      const s = await window.petAPI?.douyinGetState?.();
+      if (s) setState(s as never);
+      const p = await window.petAPI?.douyinPluginStatus?.();
+      if (p) setPluginStatus(p as never);
+    }, []);
 
   useEffect(() => {
     void refresh();
@@ -489,6 +493,36 @@ function DraggableDouyinPanel({ onBack }: { onBack: () => void }) {
 
   const { panelRef, panelStyle, titleProps } = useDraggablePanel();
 
+  /**
+   * ★ 主路径:通过 Hermes 插件刷抖音。
+   *
+   * 桌宠不自己开浏览器 —— 浏览器控制在 hermes-douyin-pet 插件里,
+   * 模型判断用 Hermes 宿主当前的模型。跑完拿回一句感想,用气泡说出来。
+   */
+  const runViaPlugin = async () => {
+    setBusy(true);
+    setPluginMsg(null);
+    try {
+      const res = await window.petAPI?.douyinWatchViaPlugin?.({ maxVideos: 3, secondsPerVideo: 6 });
+      if (!res) {
+        setPluginMsg({ kind: 'err', text: '桌宠没拿到插件接口' });
+        return;
+      }
+      if (!res.ok) {
+        setPluginMsg({ kind: 'err', text: res.error ?? '刷抖音失败' });
+        return;
+      }
+      const text = res.output?.trim() || '刚看了几条,还行吧';
+      setPluginMsg({ kind: 'ok', text: `看了 3 条(${Math.round((res.elapsedMs ?? 0) / 1000)}s)` });
+      // ★ 桌宠说感想由**主进程**推事件(douyin:watched),渲染端在 App.tsx 里订阅。
+      //   这里不重复调 onDouyinWatched —— 那是订阅函数,不是发送函数。
+    } catch (e) {
+      setPluginMsg({ kind: 'err', text: `刷抖音失败:${e instanceof Error ? e.message : String(e)}` });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return createPortal(
     <div
       className="pet-menu-panel"
@@ -505,9 +539,34 @@ function DraggableDouyinPanel({ onBack }: { onBack: () => void }) {
       </div>
 
       <div className="ai-empty-hint">
-        桌宠用 MiniMax 看画面、听声音,自己决定要不要继续看。
+        ★ 主路径:通过 Hermes 插件 hermes-douyin-pet 刷 —— 桌宠只管说话,
+        浏览器和模型判断都在 Hermes 里。
         <br />
-        第一次点「打开抖音」要在弹出的 Edge 里登录一次,之后会记住。
+        下面的「内置模式」是兜底(插件没装时用)。
+      </div>
+
+      <div className="action-grid">
+        <button
+          type="button"
+          className="action-item"
+          disabled={busy || !pluginStatus?.installed}
+          onClick={() => void runViaPlugin()}
+        >
+          <span className="action-item-label">★ 让桌宠自己刷</span>
+          <span className="action-item-hint">
+            {pluginStatus?.installed ? '走 Hermes 插件' : '插件未安装'}
+          </span>
+        </button>
+      </div>
+
+      {pluginMsg && (
+        <div className="ai-empty-hint" style={{ color: pluginMsg.kind === 'ok' ? '#9be7a5' : '#ff8a80' }}>
+          {pluginMsg.text}
+        </div>
+      )}
+
+      <div className="ai-empty-hint" style={{ marginTop: 10 }}>
+        ── 内置模式(兜底)──
       </div>
 
       <div className="action-grid">
@@ -2772,8 +2831,11 @@ function SettingsPanel({
   const [agentBridge, setAgentBridge] = useState<AgentBridgeConfig>({
     enabled: true,
     backendId: 'auto',
-    timeoutSec: 300,
+    timeoutSec: 600,
     confirmBeforeRun: true,
+    // 与 electron/config-store.ts 的 DEFAULT_AGENT_BRIDGE 保持一致
+    model: 'minimax-cn/MiniMax-M3.1-Flash',
+    provider: 'minimax-cn',
   });
   const [agentBackends, setAgentBackends] = useState<AgentBackendInfo[]>([]);
   const [agentProbing, setAgentProbing] = useState(false);
@@ -2879,9 +2941,11 @@ function SettingsPanel({
         setAgentBridge({
           enabled: ab.enabled !== false,
           backendId: ab.backendId || 'auto',
-          timeoutSec: typeof ab.timeoutSec === 'number' ? ab.timeoutSec : 300,
+          timeoutSec: typeof ab.timeoutSec === 'number' ? ab.timeoutSec : 600,
           workDir: ab.workDir,
           confirmBeforeRun: ab.confirmBeforeRun !== false,
+          model: ab.model ?? '',
+          provider: ab.provider ?? '',
         });
       }
       const vw = cfg.voiceWake;
@@ -3795,6 +3859,47 @@ function SettingsPanel({
                   timeoutSec: Math.max(10, Math.min(1800, Number(e.target.value) || 300)),
                 })
               }
+            />
+          </div>
+
+          <div
+            className="settings-row"
+            style={{ opacity: agentBridge.enabled ? 1 : 0.45 }}
+          >
+            <div className="settings-row-text">
+              <span className="settings-row-name">指定模型</span>
+              <span className="settings-row-desc">
+                格式 provider/model,例如 minimax-cn/MiniMax-M3.1-Flash。留空 = 用 Hermes
+                默认的模型。默认模型配额烧满(429)时,填这里可以切走。
+              </span>
+            </div>
+            <input
+              type="text"
+              className="settings-text-input"
+              placeholder="provider/model"
+              value={agentBridge.model ?? ''}
+              disabled={!agentBridge.enabled}
+              onChange={(e) => void persistAgentBridge({ model: e.target.value.trim() })}
+            />
+          </div>
+
+          <div
+            className="settings-row"
+            style={{ opacity: agentBridge.enabled ? 1 : 0.45 }}
+          >
+            <div className="settings-row-text">
+              <span className="settings-row-name">指定 provider</span>
+              <span className="settings-row-desc">
+                与上面的模型配套。留空 = 不覆盖。只对 Hermes 后端有效。
+              </span>
+            </div>
+            <input
+              type="text"
+              className="settings-text-input"
+              placeholder="provider"
+              value={agentBridge.provider ?? ''}
+              disabled={!agentBridge.enabled}
+              onChange={(e) => void persistAgentBridge({ provider: e.target.value.trim() })}
             />
           </div>
 
