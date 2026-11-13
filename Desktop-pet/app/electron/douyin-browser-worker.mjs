@@ -118,19 +118,64 @@ async function observe() {
   return { frames, workDir };
 }
 
-/** 录 5 秒音轨(webm/opus),存成文件路径返回。 */
+/**
+ * 录 5 秒音轨(webm/opus),存成文件路径返回。
+ *
+ * ★★ 三个真 bug(2026-11-14 在插件版实测定位,这里是同一份代码的内置兜底副本):
+ *   ① `document.querySelector('video')` 会选中**预加载的幽灵视频**
+ *      (实测 readyState=0 / muted / volume=0 / videoWidth=0)→ 录出来必然静音。
+ *      修法:优先取 `[data-e2e="feed-active-video"]` 里的 video,
+ *      并要求 readyState>=2 && videoWidth>0。
+ *   ② 视频被静音时 MediaElementSource 拿到的还是静音流 → 录音前临时解除。
+ *   ③ `createMediaElementSource` 对同一 video 只能调一次,第二次抛
+ *      InvalidStateError → 第二条视频开始整轮崩。每元素缓存 AudioNode。
+ */
 async function captureAudio(workDir) {
   if (!page) return null;
   const b64 = await page.evaluate(`(async () => {
-    const v = document.querySelector('video');
-    if (!v || v.readyState < 2) return '';
     const Ctx = window.AudioContext || window.webkitAudioContext;
     if (!Ctx) return '';
-    const ctx = new Ctx();
-    const src = ctx.createMediaElementSource(v);
+
+    const pickVideo = () => {
+      const active = document.querySelector('[data-e2e="feed-active-video"]');
+      const candidates = [];
+      if (active && active.tagName === 'VIDEO') candidates.push(active);
+      if (active) {
+        const inner = active.querySelector('video');
+        if (inner) candidates.push(inner);
+      }
+      candidates.push(...Array.from(document.querySelectorAll('video')));
+      for (const v of candidates) {
+        if (!v) continue;
+        if (v.readyState >= 2 && v.videoWidth > 0 && !v.paused) return v;
+      }
+      for (const v of candidates) {
+        if (v && v.videoWidth > 0 && v.readyState >= 2) return v;
+      }
+      return candidates[0] || null;
+    };
+
+    const v = pickVideo();
+    if (!v || v.readyState < 2) return '';
+
+    const prevMuted = v.muted;
+    const prevVolume = v.volume;
+    try { v.muted = false; v.volume = 1; } catch { /* ignore */ }
+
+    const key = '__hermesAudioNode__';
+    if (!v[key]) {
+      const ctx0 = new Ctx();
+      try { await ctx0.resume(); } catch { /* ignore */ }
+      const node = ctx0.createMediaElementSource(v);
+      node.connect(ctx0.destination);
+      v[key] = { ctx: ctx0, node };
+    }
+    const holder = v[key];
+    const ctx = holder.ctx;
+    try { await ctx.resume(); } catch { /* ignore */ }
     const dest = ctx.createMediaStreamDestination();
-    src.connect(dest);
-    src.connect(ctx.destination);
+    holder.node.connect(dest);
+
     const recorder = new MediaRecorder(dest.stream);
     const chunks = [];
     recorder.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
@@ -138,7 +183,9 @@ async function captureAudio(workDir) {
     await new Promise(r => setTimeout(r, 5000));
     recorder.stop();
     const blob = await new Promise(r => recorder.onstop = () => r(new Blob(chunks, { type: 'audio/webm' })));
-    ctx.close();
+    try { holder.node.disconnect(dest); } catch { /* ignore */ }
+    try { v.muted = prevMuted; v.volume = prevVolume; } catch { /* ignore */ }
+
     const buf = await blob.arrayBuffer();
     const bytes = new Uint8Array(buf);
     let bin = '';
