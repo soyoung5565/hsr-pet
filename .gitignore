@@ -22,3 +22,5 @@ upstream/
 scripts/_q*.json
 scripts/_r*.txt
 tmp_tree.json
+DesktopPet/
+dist-app/
