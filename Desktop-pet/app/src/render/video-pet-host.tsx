@@ -47,7 +47,7 @@ interface Props {
   onScaleChange?: (scale: number) => void;
   onAnchorY?: (y: number) => void;
   /** 桌宠在窗口里的位置(中心点,窗口坐标)—— 菜单要贴着它弹,而不是贴屏幕边。 */
-  onAnchor?: (pos: { x: number; y: number }) => void;
+  onAnchor?: (pos: { x: number; y: number; w: number; h: number }) => void;
   visible?: boolean;
 }
 
@@ -208,6 +208,25 @@ function rollNextKind(weights: typeof DEFAULT_WEIGHTS): 'idle' | 'turn' | 'move'
 }
 
 /**
+ * 保证某个 video 元素可见(且 visibility 一定是 visible)。
+ *
+ * ★ 为什么要单独抽一个函数(2026-11-14 实测踩坑):
+ *   A/B 双缓冲用 opacity 表达可见性,但**曾经用 visibility 隐藏过一轮**,
+ *   旧的内联 visibility 残留下来后,和新的 opacity 逻辑打架:
+ *     前台 video → opacity:0 + visibility:visible  → 看不见
+ *     后台 video → opacity:1 + visibility:hidden  → 看不见
+ *   → **两个都不可见,角色凭空消失**(用户反馈「点一下他就消失了,慢慢变透明」)。
+ *
+ *   规则:**可见性只由 opacity 表达;visibility 一律显式写 visible。**
+ *   这个函数是这条规则的唯一出口,杜绝两套状态并存。
+ */
+function _ensureFrontVisible(v: HTMLVideoElement | null): void {
+  if (!v) return;
+  v.style.visibility = 'visible';
+  if (!v.style.opacity || v.style.opacity === '0') v.style.opacity = '1';
+}
+
+/**
  * 点击音效的 URL。
  *
  * pet://video-pet/<角色名>/sound/<文件名>.wav
@@ -324,16 +343,52 @@ export const VideoPetHost = forwardRef<VideoPetHostHandle, Props>(function Video
         frontRef.current = back;
         // 背靠背接上:让 front(现在的 back)循环播下一段
         front.loop = true;
+        // ★★★ 隐藏退到后台的那个 video(2026-11-14 修「重影」):
+        //   A/B 双缓冲是「预加载下一段防卡顿」的设计,但 `pause()` 只是暂停 ——
+        //   画面**停在最后一帧继续渲染**。webm 带 alpha 通道,两个 video 完全重叠时,
+        //   旧角色的最后一帧会从新角色后面透出来 = 用户看到的「重影」。
+        //
+        //   ★★★ 必须同时清掉 visibility(2026-11-14 实测踩到):
+        //   之前用 visibility 做隐藏,后来改成 opacity,但**旧的内联 visibility 没清掉**
+        //   —— 结果前台 video 是 opacity:0 + visibility:visible,
+        //   后台 video 是 opacity:1 + visibility:hidden → **两个都看不见,角色凭空消失**。
+        //   (实测:点击角色后 opacity 正确切换,但 visibility 仍是上一版留下的值。)
+        //   → 统一用 opacity 表达「可见性」,visibility 一律显式设成 visible。
+        front.style.opacity = '0';
+        front.style.visibility = 'visible';
+        back.style.opacity = '1';
+        back.style.visibility = 'visible';
       };
+
+      // ★ 新段还没 onloadeddata 时,先把它藏起来 ——
+      //   否则加载期间它会显示上一帧(同样是重影)。
+      back.style.opacity = '0';
+      back.style.visibility = 'visible';
 
       back.onloadeddata = onReady;
       back.onerror = () => {
         if (gen !== genRef.current) return;
         setError(`动画加载失败:${next}`);
         onError?.(new Error(`动画加载失败:${next}`));
+        // ★★ 兜底:新段加载失败时,后台 video 已被设成 opacity:0,
+        //   而前台 video 还停在上一段(应该还可见)。
+        //   → 确认前台可见,别让角色凭空消失。
+        _ensureFrontVisible(front);
       };
       back.src = url;
       back.load();
+
+      // ★★ 安全网(2026-11-14):如果新段迟迟不 onloadeddata(网络慢/解码失败),
+      //   超时后把前台 video 恢复可见 —— 宁可继续播旧动画,也不能让角色消失。
+      //   用户实测反馈「鼠标点一下他就消失了,慢慢变透明」就是这么来的。
+      const safety = window.setTimeout(() => {
+        if (gen === genRef.current) _ensureFrontVisible(front);
+      }, 4000);
+      // 正常加载完就撤掉安全网
+      back.onloadeddata = function (this: GlobalEventHandlers, ev: Event) {
+        window.clearTimeout(safety);
+        onReady();
+      };
     },
     [assetUrl, onError],
   );
@@ -491,12 +546,41 @@ export const VideoPetHost = forwardRef<VideoPetHostHandle, Props>(function Video
     };
   }, [pickNextAnimation, switchTo]);
 
+  // ★★ 最后一道保险:整轮兜底检查 —— 任何时刻至少要有一个 video 可见。
+  //   切换失败/竞态时,两个 video 可能都 opacity:0 → 角色凭空消失。
+  //   每 1.5 秒查一次:若没有可见的,把 front 恢复可见。
+  useEffect(() => {
+    const guard = window.setInterval(() => {
+      const a = videoARef.current;
+      const b = videoBRef.current;
+      const visible = (v: HTMLVideoElement | null) =>
+        !!v && getComputedStyle(v).visibility !== 'hidden' && v.style.opacity !== '0';
+      if (!visible(a) && !visible(b)) {
+        _ensureFrontVisible(frontRef.current ?? a ?? b);
+      }
+    }, 1500);
+    return () => window.clearInterval(guard);
+  }, []);
+
   // ---- 初始动画 ----
   useEffect(() => {
     // ★ frontRef 必须先指向 videoA —— 否则 switchTo 里 `if (!front || !back) return`
     //   会直接返回,video 永远拿不到 src(表现为「元素在但 readyState=0,一片空白」)。
     //   ref 在 commit 阶段就挂好了,这个 effect 里能拿到。
     if (!frontRef.current) frontRef.current = videoARef.current;
+    // ★ 初始可见性:A 可见(前台)、B 隐藏(后台)。
+    //   配合 switchTo 里的 opacity 切换,任何时刻只有一个 video 渲染 → 没有重影。
+    //   ★ visibility 一律 explicit 设成 visible ——
+    //   之前用 visibility 隐藏过一轮,残留的内联值会让「新方案」和「旧状态」打架,
+    //   结果两个 video 都看不见(角色凭空消失)。可见性只由 opacity 表达。
+    if (videoARef.current) {
+      videoARef.current.style.opacity = '1';
+      videoARef.current.style.visibility = 'visible';
+    }
+    if (videoBRef.current) {
+      videoBRef.current.style.opacity = '0';
+      videoBRef.current.style.visibility = 'visible';
+    }
 
     const idlePool = manifest.categories.idle;
     const first = idlePool[0] ?? Object.keys(manifest.animations)[0] ?? '';
@@ -650,7 +734,7 @@ export const VideoPetHost = forwardRef<VideoPetHostHandle, Props>(function Video
       const el = containerRef.current;
       if (!el) return;
       const r = el.getBoundingClientRect();
-      onAnchor?.({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
+      onAnchor?.({ x: r.left + r.width / 2, y: r.top + r.height / 2, w: r.width, h: r.height });
     };
     // ★ 只在位置真的变了才上报 —— 桌宠不动时不该每 500ms 触发一次
     //   setState(整棵菜单树重渲染)。
@@ -662,7 +746,7 @@ export const VideoPetHost = forwardRef<VideoPetHostHandle, Props>(function Video
       const key = `${Math.round(r.left)},${Math.round(r.top)},${Math.round(r.width)}`;
       if (key === last) return;
       last = key;
-      onAnchor?.({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
+      onAnchor?.({ x: r.left + r.width / 2, y: r.top + r.height / 2, w: r.width, h: r.height });
     };
     reportIfMoved();
     const timer = window.setInterval(reportIfMoved, 400);
@@ -900,6 +984,13 @@ export const VideoPetHost = forwardRef<VideoPetHostHandle, Props>(function Video
     height: '100%',
     objectFit: 'contain',
     pointerEvents: 'none',
+    // ★ 与上游 dsh-pet 一致:后台 video opacity:0,前台 opacity:1,
+    //   0.18s 过渡 = 切换动画时淡入淡出,不会「啪」地跳。
+    //   ★ 这也是修「重影」的关键 —— 两个 video 完全重叠时,
+    //   旧角色最后一帧从新角色后面透出来,用户看到两个影像。
+    //   (上游 CSS:.dsh-pet-video{opacity:0} .dsh-pet-video.is-front{opacity:1})
+    opacity: 0,
+    transition: 'opacity 0.18s ease',
   };
 
   return (

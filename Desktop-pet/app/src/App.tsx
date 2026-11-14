@@ -53,11 +53,13 @@ export default function App() {
   /** 模型腰线 Y(CSS 像素),用于定位聊天气泡 */
   const [anchorY, setAnchorY] = useState<number | null>(null);
   /**
-   * 桌宠在窗口里的中心位置 —— 菜单贴着它弹。
+   * 桌宠在窗口里的位置与尺寸 —— 菜单贴着它弹、且**不挡住它**。
    * ★ 之前菜单是按「窗口中心在屏幕哪半边」定位的,但桌宠窗口是**全屏**的,
    *   窗口中心永远在屏幕中间 → 菜单永远固定在屏幕左侧,跟桌宠不在一处。
+   * ★ 带 w/h 是为了算「角色本体的左右边缘」—— 菜单要落在角色外面,
+   *   不能压在身上(2026-11-14 用户反馈「图标挡住建模」)。
    */
-  const [petPos, setPetPos] = useState<{ x: number; y: number } | null>(null);
+  const [petPos, setPetPos] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
   /**
    * 桌宠中心的 X —— 气泡水平贴在它头顶。
    * ★ 同上:气泡 CSS 原本是 `left:50%`(那是 dsh-pet 小盒子里的居中),

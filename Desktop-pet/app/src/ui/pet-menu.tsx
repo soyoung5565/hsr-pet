@@ -44,7 +44,7 @@ interface Props {
    * ★ 之前菜单按「窗口中心在屏幕哪半边」定位,但桌宠窗口是全屏的,
    *   窗口中心永远在屏幕中间 → 菜单永远固定在屏幕左侧(实测反馈的问题)。
    */
-  petPos?: { x: number; y: number } | null;
+  petPos?: { x: number; y: number; w: number; h: number } | null;
   /** 当前角色清单(Live2D + Hatch-Pet) */
   characters: MenuCharacter[];
   activeId: string | undefined;
@@ -263,7 +263,10 @@ export function PetMenu({
    *   是给「按屏幕左右半边定位」的旧逻辑用的 —— 那套逻辑在**全屏桌宠窗口**下
    *   永远落在屏幕左边(实测用户反馈:菜单按钮固定在屏幕左侧,不在桌宠身边)。
    *
-   * 现在改成:菜单贴在桌宠旁边 —— 桌宠在右边就弹左边,反之亦然。
+   * ★★ 必须落在角色**本体外面**,不能压在身上(2026-11-14 用户反馈「图标挡住建模」):
+   *   video-pet 角色宽 462px,而旧算法按「中心 ± 16px」放菜单 ——
+   *   菜单正好落在角色身体中间,把建模挡住。
+   *   → 改用角色的**左右边缘**(petPos.x ± w/2)再留 gap。
    */
   useEffect(() => {
     if (!open || !petPos) return;
@@ -275,15 +278,22 @@ export function PetMenu({
     const w = rect.width || 48;
     const h = rect.height || 496;
 
-    // 桌宠在屏幕右半边 → 菜单放它左边;否则放右边
-    const petOnRight = petPos.x > window.innerWidth / 2;
+    // ★ 角色本体的左右边缘(没有尺寸就退回中心 ± 半宽的估计)
+    const petHalfW = petPos.w ? petPos.w / 2 : 96;
+    const petLeft = petPos.x - petHalfW;
+    const petRight = petPos.x + petHalfW;
+
     const gap = 16;
+    // 角色在屏幕右半边 → 菜单放它左边;否则放右边
+    const petOnRight = petPos.x > window.innerWidth / 2;
 
     let left: number;
     if (petOnRight) {
-      left = petPos.x - w - gap;
+      // 菜单右边缘贴在角色左边缘外侧
+      left = petLeft - w - gap;
     } else {
-      left = petPos.x + gap;
+      // 菜单左边缘贴在角色右边缘外侧
+      left = petRight + gap;
     }
     // 垂直方向:与桌宠大致对齐(菜单比桌宠高,往上偏一点)
     let top = petPos.y - h / 2;

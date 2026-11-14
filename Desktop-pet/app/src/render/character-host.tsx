@@ -24,7 +24,7 @@ interface Props {
   /** 报告当前模型在窗口里的"对话气泡锚点 Y"(腰线附近,CSS 像素) */
   onAnchorY?: (y: number) => void;
   /** 桌宠在窗口里的位置(中心点,窗口坐标)—— 菜单要贴着它弹,而不是贴屏幕边。 */
-  onAnchor?: (pos: { x: number; y: number }) => void;
+  onAnchor?: (pos: { x: number; y: number; w: number; h: number }) => void;
   /** 模型是否可见。隐藏时暂停 Pixi/Live2D ticker,避免 display:none 仍然烧 CPU。 */
   visible?: boolean;
 }
@@ -342,7 +342,7 @@ export const CharacterHost = forwardRef<CharacterHostHandle, Props>(function Cha
       const el = containerRef.current;
       if (!el) return;
       const r = el.getBoundingClientRect();
-      onAnchor({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
+      onAnchor({ x: r.left + r.width / 2, y: r.top + r.height / 2, w: r.width, h: r.height });
     };
     // ★ 只在位置真的变了才上报 —— 桌宠不动时不该每 500ms 触发一次
     //   setState(整棵菜单树重渲染)。
@@ -354,7 +354,7 @@ export const CharacterHost = forwardRef<CharacterHostHandle, Props>(function Cha
       const key = `${Math.round(r.left)},${Math.round(r.top)},${Math.round(r.width)}`;
       if (key === last) return;
       last = key;
-      onAnchor({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
+      onAnchor({ x: r.left + r.width / 2, y: r.top + r.height / 2, w: r.width, h: r.height });
     };
     reportIfMoved();
     const timer = window.setInterval(reportIfMoved, 400);
