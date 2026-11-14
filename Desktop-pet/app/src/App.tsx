@@ -58,6 +58,12 @@ export default function App() {
    *   窗口中心永远在屏幕中间 → 菜单永远固定在屏幕左侧,跟桌宠不在一处。
    */
   const [petPos, setPetPos] = useState<{ x: number; y: number } | null>(null);
+  /**
+   * 桌宠中心的 X —— 气泡水平贴在它头顶。
+   * ★ 同上:气泡 CSS 原本是 `left:50%`(那是 dsh-pet 小盒子里的居中),
+   *   放进全屏窗口后变成屏幕中心(用户实测反馈「气泡在屏幕中间偏下」)。
+   */
+  const anchorX = petPos?.x ?? null;
   /** 对话面板是否可见(默认收起,由菜单 💬 按钮打开) */
   const [chatOpen, setChatOpen] = useState(false);
   /** 「只打开对话」模式 — 隐藏模型 canvas,只留聊天气泡。
@@ -408,6 +414,7 @@ export default function App() {
       <PetSpeechBubble
         text={speech?.text ?? ''}
         anchorY={anchorY}
+        anchorX={anchorX}
         durationMs={speech?.durationMs ?? 4000}
         imageUrl={speech?.imageUrl ?? null}
       />

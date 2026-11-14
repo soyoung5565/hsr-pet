@@ -1144,6 +1144,10 @@ export const HatchPetHost = forwardRef<CharacterHostHandle, Props>(function Hatc
 
   // ---- 上报桌宠位置(菜单定位用)----
   // 每次位置变化(拖拽/漫游/甩抛)都要上报,否则菜单会留在旧位置。
+  //
+  // ★ 同时上报 X(2026-11-14 修):菜单和气泡都要**贴在桌宠身边**,
+  //   而桌宠窗口是全屏的 —— 只报 Y 的话,气泡只能用 `left:50%`(屏幕中心),
+  //   桌宠在右下角时气泡就跑到屏幕中间去了(实测:用户反馈「气泡在屏幕中间偏下」)。
   useEffect(() => {
     const report = () => {
       const el = containerRef.current;

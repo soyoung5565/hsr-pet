@@ -23,6 +23,16 @@ interface Props {
   text: string;
   /** 桌宠腰线的 Y(CSS 像素),气泡底边贴这里 */
   anchorY: number | null;
+  /**
+   * 桌宠中心的 X(CSS 像素)—— 气泡水平居中在它头顶。
+   *
+   * ★ 为什么必须有 X(2026-11-14 修):之前气泡的 CSS 是 `left:50%`。
+   *   那在 dsh-pet 原版是对的(桌宠是一个小盒子,气泡在盒子里居中),
+   *   但我们把桌宠放进了**全屏窗口** —— `left:50%` 就变成了**屏幕中心**,
+   *   桌宠在右下角时气泡跑到屏幕中间去了(用户实测反馈)。
+   *   → 改成按桌宠实际 X 定位。
+   */
+  anchorX?: number | null;
   /** 显示时长(毫秒);到期开始淡出 */
   durationMs: number;
   /**
@@ -38,7 +48,7 @@ interface Props {
 /** 淡出动画时长(ms),与 CSS 里 .pet-speech--out 的 animation-duration 对齐 */
 const FADE_OUT_MS = 200;
 
-export function PetSpeechBubble({ text, anchorY, durationMs, imageUrl }: Props): JSX.Element | null {
+export function PetSpeechBubble({ text, anchorY, anchorX, durationMs, imageUrl }: Props): JSX.Element | null {
   const [phase, setPhase] = useState<Phase>('idle');
   const [shown, setShown] = useState('');
   const hideTimer = useRef<number | null>(null);
@@ -83,6 +93,9 @@ export function PetSpeechBubble({ text, anchorY, durationMs, imageUrl }: Props):
 
   // 腰线在气泡底边 → 往上偏移气泡高度
   const bottom = anchorY != null ? anchorY : window.innerHeight - 120;
+  // ★ 水平:贴在桌宠正上方(不是屏幕中心)。
+  //   没有 anchorX 时退回 50%(此时桌宠多半也在中间,不至于离谱)。
+  const left = anchorX != null ? anchorX : window.innerWidth / 2;
 
   return (
     <div
@@ -90,7 +103,7 @@ export function PetSpeechBubble({ text, anchorY, durationMs, imageUrl }: Props):
       //   否则同一个 div 复用,新气泡不会重新淡入(看起来像没反应)。
       key={shown}
       className={'pet-speech' + (phase === 'out' ? ' pet-speech--out' : '')}
-      style={{ bottom: `calc(100% - ${bottom}px)` }}
+      style={{ bottom: `calc(100% - ${bottom}px)`, left: `${left}px` }}
       role="status"
       aria-live="polite"
       title={shown}
